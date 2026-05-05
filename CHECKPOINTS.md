@@ -6,6 +6,7 @@ Place downloaded files in:
 backend/app/models/checkpoints/
 
 Expected files:
-- stage1_ner_best.pt
-- stage2_interaction_best.pt
-- stage3_severity_best.pt
+stage1_ner_best.pt
+stage2_interaction_best_baseline_04190.pt
+stage2_interaction_best.pt
+stage3_severity_best.pt

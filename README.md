@@ -142,7 +142,7 @@ python main.py
 
 ---
 
-## Known Limitations (Explicitly Reported)
+## Known Limitations 
 
 - Stage 3 severity supervision is on the linked subset only (coverage reported each run).
 - Some DDI mentions are drug classes and are excluded from direct DDInter pair matching.
@@ -163,7 +163,7 @@ All linking decisions were logged with method provenance and run identifiers for
 
 ## Addendum (after README freeze for teacher review — appended only)
 
-**Repository:** [MedGuard-AI-Powered-Medication-Safety-Assistant](https://github.com/Eng-AlaaHosny/MedGuard-AI-Powered-Medication-Safety-Assistant)
+**Repository:** [MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
 
 This block documents **runtime / demo** updates only. All sections above are unchanged.
 
@@ -172,13 +172,7 @@ This block documents **runtime / demo** updates only. All sections above are unc
 - **`backend/main.py`** — FastAPI app; after startup prints a bare `http://127.0.0.1:8000` line for easier terminal link detection.
 - **`backend/app/static/demo.html`** — Browser demo: common-medication quick grid, typed drug list + **Analyze Interactions** (same inference path as `POST /api/analyze`).
 
-### Files touched in this addendum
 
-| Path | Role |
-|------|------|
-| `backend/app/api/routes.py` | Inference routes (`POST /api/analyze`, health, etc.) |
-| `backend/app/static/demo.html` | Demo layout + optional Anthropic assistant panel |
-| `backend/main.py` | Startup URL logging |
 
 ### LLM orchestration (Anthropic + MedGuard tool)
 
