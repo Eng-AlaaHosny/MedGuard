@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MedGuard — Drug Interaction Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --blue-900: #0a1628;
+    --blue-800: #0f2147;
+    --blue-700: #1a3a6b;
+    --blue-600: #1e4d9b;
+    --blue-500: #2563eb;
+    --blue-400: #3b82f6;
+    --blue-300: #93c5fd;
+    --blue-100: #dbeafe;
+    --blue-50:  #eff6ff;
+    --white:    #ffffff;
+    --gray-50:  #f8fafc;
+    --gray-100: #f1f5f9;
+    --gray-200: #e2e8f0;
+    --gray-400: #94a3b8;
+    --gray-600: #475569;
+    --gray-800: #1e293b;
+
+    --safe:    #16a34a;
+    --caution: #d97706;
+    --warning: #ea580c;
+    --danger:  #dc2626;
+    --safe-bg:    #f0fdf4;
+    --caution-bg: #fffbeb;
+    --warning-bg: #fff7ed;
+    --danger-bg:  #fef2f2;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--white);
+    color: var(--gray-800);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ─────────────────────────────────────── */
+  header {
+    background: linear-gradient(135deg, var(--blue-900) 0%, var(--blue-700) 100%);
+    padding: 2.5rem 2rem 3rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 70% 50%, rgba(59,130,246,.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 0; right: 0;
+    height: 40px;
+    background: var(--white);
+    clip-path: ellipse(55% 100% at 50% 100%);
+  }
+
+  .logo-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    background: rgba(255,255,255,.1);
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 999px;
+    padding: .35rem 1rem;
+    font-size: .75rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--blue-300);
+    text-transform: uppercase;
+    margin-bottom: 1.25rem;
+  }
+  .logo-pill .dot { width:6px; height:6px; border-radius:50%; background:var(--blue-400); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  header h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    color: var(--white);
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin-bottom: .6rem;
+  }
+  header h1 span { color: var(--blue-300); font-style: italic; }
+  header p {
+    color: rgba(255,255,255,.65);
+    font-size: .95rem;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ── Layout ─────────────────────────────────────── */
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 2.5rem 1.5rem 5rem;
+  }
+
+  /* ── Section titles ─────────────────────────────── */
+  .section-label {
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--blue-500);
+    margin-bottom: .75rem;
+  }
+
+  /* ── Drug input area ────────────────────────────── */
+  .input-card {
+    background: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 4px 24px rgba(37,99,235,.06);
+    margin-bottom: 1.5rem;
+  }
+
+  .drug-tags-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    min-height: 52px;
+    align-items: flex-start;
+    padding: .6rem .75rem;
+    border: 1.5px solid var(--blue-300);
+    border-radius: 10px;
+    background: var(--blue-50);
+    cursor: text;
+    transition: border-color .2s;
+    margin-bottom: 1rem;
+  }
+  .drug-tags-box:focus-within { border-color: var(--blue-500); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+
+  .drug-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    background: var(--blue-600);
+    color: var(--white);
+    border-radius: 6px;
+    padding: .3rem .65rem;
+    font-size: .85rem;
+    font-weight: 500;
+    animation: tagIn .18s ease;
+  }
+  @keyframes tagIn { from{opacity:0;transform:scale(.85)} to{opacity:1;transform:scale(1)} }
+  .drug-tag button {
+    background: none; border: none; cursor: pointer;
+    color: rgba(255,255,255,.7); font-size: 1rem; line-height:1;
+    padding: 0; display:flex; align-items:center;
+    transition: color .15s;
+  }
+  .drug-tag button:hover { color: var(--white); }
+
+  #drug-input {
+    border: none; outline: none; background: transparent;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .9rem;
+    color: var(--gray-800);
+    min-width: 160px;
+    flex: 1;
+  }
+  #drug-input::placeholder { color: var(--gray-400); }
+
+  /* ── Autocomplete dropdown ──────────────────────── */
+  .autocomplete-wrap { position: relative; }
+  .autocomplete-list {
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: var(--white);
+    border: 1.5px solid var(--blue-200, #bfdbfe);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(37,99,235,.13);
+    z-index: 50;
+    max-height: 260px;
+    overflow-y: auto;
+    display: none;
+  }
+  .autocomplete-list.open { display: block; }
+  .autocomplete-item {
+    padding: .65rem 1rem;
+    cursor: pointer;
+    font-size: .88rem;
+    color: var(--gray-800);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    transition: background .12s;
+  }
+  .autocomplete-item:hover, .autocomplete-item.active {
+    background: var(--blue-50);
+    color: var(--blue-700);
+  }
+  .autocomplete-item .pill-cat {
+    margin-left: auto;
+    font-size: .68rem;
+    font-weight: 600;
+    background: var(--blue-100);
+    color: var(--blue-700);
+    border-radius: 4px;
+    padding: .1rem .4rem;
+  }
+
+  /* ── Analyze button ─────────────────────────────── */
+  #analyze-btn {
+    width: 100%;
+    padding: .9rem;
+    background: linear-gradient(135deg, var(--blue-600), var(--blue-500));
+    color: var(--white);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .6rem;
+    transition: opacity .2s, transform .15s, box-shadow .2s;
+    box-shadow: 0 4px 16px rgba(37,99,235,.3);
+    letter-spacing: .01em;
+  }
+  #analyze-btn:hover:not(:disabled) { opacity: .92; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(37,99,235,.35); }
+  #analyze-btn:active:not(:disabled) { transform: translateY(0); }
+  #analyze-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2.5px solid rgba(255,255,255,.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    display: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #analyze-btn.loading .spinner { display: block; }
+  #analyze-btn.loading .btn-text { opacity: .6; }
+
+  /* ── LLM assistant (Anthropic) ───────────────────── */
+  .assistant-status {
+    font-size: .8rem;
+    color: var(--gray-600);
+    margin-bottom: .85rem;
+    line-height: 1.55;
+  }
+  #assistant-input {
+    width: 100%;
+    min-height: 88px;
+    resize: vertical;
+    border: 1.5px solid var(--gray-200);
+    border-radius: 10px;
+    padding: .75rem 1rem;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .9rem;
+    color: var(--gray-800);
+    margin-bottom: .5rem;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #assistant-input:focus {
+    outline: none;
+    border-color: var(--blue-400);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+  }
+  .assistant-actions {
+    display: flex;
+    gap: .5rem;
+    margin-bottom: .75rem;
+  }
+  #assistant-send, #assistant-clear {
+    flex: 1;
+    padding: .75rem;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .92rem;
+    font-weight: 600;
+    border-radius: 10px;
+    cursor: pointer;
+    border: none;
+    transition: opacity .2s, transform .15s;
+  }
+  #assistant-send {
+    background: linear-gradient(135deg, var(--blue-700), var(--blue-600));
+    color: var(--white);
+    box-shadow: 0 4px 14px rgba(26,58,107,.25);
+  }
+  #assistant-send:hover:not(:disabled) { opacity: .94; transform: translateY(-1px); }
+  #assistant-send:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+  #assistant-clear {
+    background: var(--gray-100);
+    color: var(--gray-700);
+    border: 1.5px solid var(--gray-200);
+  }
+  #assistant-clear:hover { background: var(--gray-200); }
+  .assistant-reply {
+    background: var(--gray-50);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 10px;
+    padding: .85rem 1rem;
+    font-size: .86rem;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    max-height: 320px;
+    overflow-y: auto;
+    color: var(--gray-800);
+  }
+  .assistant-reply.muted { color: var(--gray-400); font-style: italic; }
+
+  .assistant-examples-label {
+    font-size: .65rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--blue-500);
+    margin-bottom: .45rem;
+  }
+  .assistant-examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin-bottom: .65rem;
+  }
+  .assistant-example-chip {
+    background: var(--gray-50);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 999px;
+    padding: .32rem .78rem;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .76rem;
+    color: var(--gray-700);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all .15s;
+    max-width: 100%;
+    text-align: left;
+  }
+  .assistant-example-chip:hover {
+    border-color: var(--blue-400);
+    background: var(--blue-50);
+    color: var(--blue-800);
+  }
+
+  /* ── Quick-pick medication grid ─────────────────── */
+  .quick-section { margin-bottom: 2rem; }
+  .quick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: .5rem;
+  }
+  .quick-btn {
+    background: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 8px;
+    padding: .5rem .75rem;
+    font-family: 'DM Sans', sans-serif;
+    font-size: .82rem;
+    font-weight: 500;
+    color: var(--gray-600);
+    cursor: pointer;
+    text-align: left;
+    transition: all .15s;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .quick-btn:hover { border-color: var(--blue-400); color: var(--blue-700); background: var(--blue-50); }
+  .quick-btn .cat-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  }
+
+  /* ── Results ────────────────────────────────────── */
+  #results { margin-top: 2rem; display: none; }
+  #results.visible { display: block; animation: fadeUp .35s ease; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+
+  /* Severity banner */
+  .severity-banner {
+    border-radius: 14px;
+    padding: 1.5rem 1.75rem;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+    border: 2px solid;
+  }
+  .severity-banner.safe    { background: var(--safe-bg);    border-color: #bbf7d0; color: #14532d; }
+  .severity-banner.caution { background: var(--caution-bg); border-color: #fde68a; color: #78350f; }
+  .severity-banner.warning { background: var(--warning-bg); border-color: #fed7aa; color: #7c2d12; }
+  .severity-banner.danger  { background: var(--danger-bg);  border-color: #fecaca; color: #7f1d1d; }
+
+  .sev-icon {
+    width: 52px; height: 52px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; flex-shrink: 0;
+  }
+  .safe    .sev-icon { background: #dcfce7; }
+  .caution .sev-icon { background: #fef9c3; }
+  .warning .sev-icon { background: #ffedd5; }
+  .danger  .sev-icon { background: #fee2e2; }
+
+  .sev-label {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.5rem;
+    font-weight: 400;
+    letter-spacing: -.01em;
+    line-height: 1;
+    margin-bottom: .2rem;
+  }
+  .sev-sub { font-size: .88rem; opacity: .75; }
+
+  /* Info cards row */
+  .cards-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  @media(max-width:560px){ .cards-row { grid-template-columns: 1fr; } }
+
+  .info-card {
+    background: var(--white);
+    border: 1.5px solid var(--gray-200);
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 2px 12px rgba(0,0,0,.04);
+  }
+  .info-card h3 {
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--blue-500);
+    margin-bottom: .85rem;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .info-card h3::before {
+    content: '';
+    display: block;
+    width: 3px; height: 13px;
+    background: var(--blue-400);
+    border-radius: 2px;
+  }
+
+  .kv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: .35rem 0;
+    border-bottom: 1px solid var(--gray-100);
+    font-size: .86rem;
+    gap: .5rem;
+  }
+  .kv-row:last-child { border-bottom: none; }
+  .kv-key { color: var(--gray-600); flex-shrink: 0; }
+  .kv-val { font-weight: 600; color: var(--gray-800); text-align: right; word-break: break-word; }
+
+  /* Detected drugs */
+  .detected-drugs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin-top: .5rem;
+  }
+  .detected-drug-tag {
+    background: var(--blue-100);
+    color: var(--blue-800);
+    border-radius: 6px;
+    padding: .28rem .65rem;
+    font-size: .83rem;
+    font-weight: 600;
+  }
+
+  /* Confidence bars */
+  .conf-bar-wrap { margin-bottom: .55rem; }
+  .conf-bar-top { display:flex; justify-content:space-between; font-size:.8rem; color:var(--gray-600); margin-bottom:.25rem; }
+  .conf-bar-top span:last-child { font-weight:600; color:var(--gray-800); }
+  .conf-bar-bg { height:6px; background:var(--gray-100); border-radius:99px; overflow:hidden; }
+  .conf-bar-fill { height:100%; background:linear-gradient(90deg,var(--blue-400),var(--blue-600)); border-radius:99px; transition:width .6s cubic-bezier(.22,1,.36,1); }
+
+  /* KG description */
+  .kg-desc {
+    font-size: .86rem;
+    color: var(--gray-600);
+    line-height: 1.6;
+    background: var(--gray-50);
+    border-radius: 8px;
+    padding: .75rem;
+    margin-top: .5rem;
+    border-left: 3px solid var(--blue-300);
+  }
+
+  /* Error state */
+  .error-box {
+    background: #fff1f2;
+    border: 1.5px solid #fecdd3;
+    border-radius: 12px;
+    padding: 1.25rem;
+    color: #9f1239;
+    font-size: .9rem;
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+  }
+
+  /* ── Footer ─────────────────────────────────────── */
+  .footer-note {
+    margin-top: 3rem;
+    text-align: center;
+    font-size: .78rem;
+    color: var(--gray-400);
+    line-height: 1.6;
+  }
+  .footer-note strong { color: var(--gray-600); }
+
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-pill"><span class="dot"></span> MedGuard AI</div>
+  <h1>Drug Interaction <span>Detection</span></h1>
+  <p>Enter two or more medications to detect interactions, classify severity, and identify named drug entities using Bio_ClinicalBERT multi-task learning.</p>
+</header>
+
+<main>
+
+  <!-- ── Quick-pick medication grid ── -->
+  <div class="quick-section">
+    <div class="section-label">Common medications — click to add</div>
+    <div class="quick-grid" id="quick-grid"></div>
+  </div>
+
+  <!-- ── Input card ── -->
+  <div class="input-card">
+    <div class="section-label" style="margin-bottom:0.5rem">Enter medication names</div>
+
+    <div class="autocomplete-wrap">
+      <div class="drug-tags-box" id="tags-box">
+        <input id="drug-input" type="text" placeholder="Type a drug name and press Enter…" autocomplete="off" />
+      </div>
+      <div class="autocomplete-list" id="autocomplete-list"></div>
+    </div>
+
+    <button id="analyze-btn" disabled>
+      <span class="btn-text">Analyze Interactions</span>
+      <div class="spinner"></div>
+    </button>
+  </div>
+
+  <!-- ── Results ── -->
+  <div id="results"></div>
+
+  <!-- ── Anthropic LLM layer (MedGuard as tool) ── -->
+  <div class="input-card" style="margin-top:2rem">
+    <div class="section-label" style="margin-bottom:0.35rem">LLM assistant (Anthropic)</div>
+    <p class="assistant-status" id="assistant-status">Checking configuration…</p>
+    <div class="assistant-examples-label">Try an example — click to insert (then Send)</div>
+    <div class="assistant-examples">
+      <button type="button" class="assistant-example-chip" data-assistant-msg="Is it safe to take ibuprofen together with warfarin? Please use MedGuard if this needs a formal interaction check.">DDI: warfarin + ibuprofen</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="My doctor started metoprolol and I already take amiodarone. What does MedGuard say about this pair?">DDI: metoprolol + amiodarone</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="I'm on ciprofloxacin and warfarin — run an interaction analysis for these two drugs.">DDI: ciprofloxacin + warfarin</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="Compare digoxin and amiodarone for interaction risk using the MedGuard tool.">DDI: digoxin + amiodarone</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="Can I combine fluoxetine with warfarin? Check with MedGuard.">DDI: fluoxetine + warfarin</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="I take aspirin daily and was prescribed clopidogrel — assess this combination.">DDI: aspirin + clopidogrel</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="What is warfarin normally used for? Keep this general — no drug interaction tool needed unless I ask about combining drugs.">General: what is warfarin?</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="Explain in plain language what a blood thinner is. No pairwise medication analysis unless I name two specific drugs.">General: blood thinner</button>
+      <button type="button" class="assistant-example-chip" data-assistant-msg="First: is metformin safe with lisinopril? Then: what side effects are commonly discussed for metformin? Ask two short follow-ups if anything is unclear.">Follow-up style (two topics)</button>
+    </div>
+    <textarea id="assistant-input" placeholder="e.g. Is it risky to combine warfarin and ibuprofen? What does metformin do?" autocomplete="off"></textarea>
+    <div class="assistant-actions">
+      <button type="button" id="assistant-send">Send</button>
+      <button type="button" id="assistant-clear">New chat</button>
+    </div>
+    <div id="assistant-reply" class="assistant-reply muted">Reply appears here. Drug-interaction questions invoke MedGuard on the server as a tool; the model must stay consistent with that JSON.</div>
+  </div>
+
+  <div class="footer-note">
+    <strong>MedGuard</strong> uses Bio_ClinicalBERT with multi-task learning (NER · DDI Classification · Severity Prediction) enriched by DrugBank Knowledge Graph embeddings.<br>
+    For academic demonstration only — not for clinical use.
+  </div>
+
+</main>
+
+<script>
+// ── Medication database ──────────────────────────────────────────────────────
+const MEDICATIONS = [
+  // Anticoagulants
+  { name:'Warfarin',       cat:'Anticoagulant',    color:'#ef4444' },
+  { name:'Heparin',        cat:'Anticoagulant',    color:'#ef4444' },
+  { name:'Rivaroxaban',    cat:'Anticoagulant',    color:'#ef4444' },
+  { name:'Apixaban',       cat:'Anticoagulant',    color:'#ef4444' },
+  { name:'Dabigatran',     cat:'Anticoagulant',    color:'#ef4444' },
+  { name:'Enoxaparin',     cat:'Anticoagulant',    color:'#ef4444' },
+  // Antiplatelets / NSAIDs
+  { name:'Aspirin',        cat:'NSAID',            color:'#f97316' },
+  { name:'Ibuprofen',      cat:'NSAID',            color:'#f97316' },
+  { name:'Naproxen',       cat:'NSAID',            color:'#f97316' },
+  { name:'Clopidogrel',    cat:'Antiplatelet',     color:'#f97316' },
+  { name:'Celecoxib',      cat:'NSAID',            color:'#f97316' },
+  // Statins
+  { name:'Atorvastatin',   cat:'Statin',           color:'#8b5cf6' },
+  { name:'Simvastatin',    cat:'Statin',           color:'#8b5cf6' },
+  { name:'Rosuvastatin',   cat:'Statin',           color:'#8b5cf6' },
+  { name:'Pravastatin',    cat:'Statin',           color:'#8b5cf6' },
+  // Antihypertensives
+  { name:'Lisinopril',     cat:'ACE Inhibitor',    color:'#0ea5e9' },
+  { name:'Enalapril',      cat:'ACE Inhibitor',    color:'#0ea5e9' },
+  { name:'Ramipril',       cat:'ACE Inhibitor',    color:'#0ea5e9' },
+  { name:'Amlodipine',     cat:'CCB',              color:'#0ea5e9' },
+  { name:'Verapamil',      cat:'CCB',              color:'#0ea5e9' },
+  { name:'Diltiazem',      cat:'CCB',              color:'#0ea5e9' },
+  // Beta-blockers
+  { name:'Metoprolol',     cat:'Beta-blocker',     color:'#06b6d4' },
+  { name:'Atenolol',       cat:'Beta-blocker',     color:'#06b6d4' },
+  { name:'Carvedilol',     cat:'Beta-blocker',     color:'#06b6d4' },
+  { name:'Bisoprolol',     cat:'Beta-blocker',     color:'#06b6d4' },
+  { name:'Propranolol',    cat:'Beta-blocker',     color:'#06b6d4' },
+  // Antidiabetics
+  { name:'Metformin',      cat:'Antidiabetic',     color:'#10b981' },
+  { name:'Glipizide',      cat:'Antidiabetic',     color:'#10b981' },
+  { name:'Glibenclamide',  cat:'Antidiabetic',     color:'#10b981' },
+  { name:'Insulin',        cat:'Antidiabetic',     color:'#10b981' },
+  { name:'Sitagliptin',    cat:'Antidiabetic',     color:'#10b981' },
+  { name:'Empagliflozin',  cat:'Antidiabetic',     color:'#10b981' },
+  // Cardiac
+  { name:'Digoxin',        cat:'Cardiac',          color:'#ec4899' },
+  { name:'Amiodarone',     cat:'Cardiac',          color:'#ec4899' },
+  { name:'Quinidine',      cat:'Cardiac',          color:'#ec4899' },
+  { name:'Sotalol',        cat:'Cardiac',          color:'#ec4899' },
+  // Antidepressants / CNS
+  { name:'Fluoxetine',     cat:'SSRI',             color:'#6366f1' },
+  { name:'Sertraline',     cat:'SSRI',             color:'#6366f1' },
+  { name:'Paroxetine',     cat:'SSRI',             color:'#6366f1' },
+  { name:'Citalopram',     cat:'SSRI',             color:'#6366f1' },
+  { name:'Escitalopram',   cat:'SSRI',             color:'#6366f1' },
+  { name:'Venlafaxine',    cat:'SNRI',             color:'#6366f1' },
+  { name:'Amitriptyline',  cat:'TCA',              color:'#6366f1' },
+  { name:'Lithium',        cat:'Mood stabiliser',  color:'#6366f1' },
+  // Antibiotics
+  { name:'Ciprofloxacin',  cat:'Antibiotic',       color:'#d97706' },
+  { name:'Erythromycin',   cat:'Antibiotic',       color:'#d97706' },
+  { name:'Clarithromycin', cat:'Antibiotic',       color:'#d97706' },
+  { name:'Amoxicillin',    cat:'Antibiotic',       color:'#d97706' },
+  { name:'Doxycycline',    cat:'Antibiotic',       color:'#d97706' },
+  { name:'Rifampicin',     cat:'Antibiotic',       color:'#d97706' },
+  // Diuretics
+  { name:'Furosemide',     cat:'Diuretic',         color:'#14b8a6' },
+  { name:'Hydrochlorothiazide', cat:'Diuretic',    color:'#14b8a6' },
+  { name:'Spironolactone', cat:'Diuretic',         color:'#14b8a6' },
+  // Others
+  { name:'Phenytoin',      cat:'Anticonvulsant',   color:'#a855f7' },
+  { name:'Carbamazepine',  cat:'Anticonvulsant',   color:'#a855f7' },
+  { name:'Valproate',      cat:'Anticonvulsant',   color:'#a855f7' },
+  { name:'Allopurinol',    cat:'Gout',             color:'#64748b' },
+  { name:'Colchicine',     cat:'Gout',             color:'#64748b' },
+  { name:'Prednisone',     cat:'Corticosteroid',   color:'#64748b' },
+  { name:'Dexamethasone',  cat:'Corticosteroid',   color:'#64748b' },
+  { name:'Omeprazole',     cat:'PPI',              color:'#64748b' },
+  { name:'Pantoprazole',   cat:'PPI',              color:'#64748b' },
+  { name:'Methotrexate',   cat:'Immunosuppressant',color:'#64748b' },
+  { name:'Cyclosporine',   cat:'Immunosuppressant',color:'#64748b' },
+  { name:'Tacrolimus',     cat:'Immunosuppressant',color:'#64748b' },
+];
+
+// ── API base URL — works whether file:// or served by FastAPI ────────────────
+const API_BASE = (location.protocol === 'file:' || !location.hostname)
+  ? 'http://localhost:8000'
+  : '';          // same-origin when served by FastAPI
+
+// ── State ────────────────────────────────────────────────────────────────────
+let selectedDrugs = [];
+
+// ── Build quick grid ─────────────────────────────────────────────────────────
+const QUICK_DRUGS = [
+  'Warfarin','Aspirin','Metoprolol','Amiodarone','Digoxin','Fluoxetine',
+  'Ciprofloxacin','Metformin','Atorvastatin','Lisinopril','Furosemide',
+  'Lithium','Phenytoin','Carbamazepine','Erythromycin','Rifampicin',
+  'Clopidogrel','Simvastatin','Verapamil','Spironolactone',
+  'Cyclosporine','Methotrexate','Warfarin','Omeprazole',
+];
+
+function buildQuickGrid() {
+  const grid = document.getElementById('quick-grid');
+  const unique = [...new Set(QUICK_DRUGS)];
+  unique.forEach(name => {
+    const med = MEDICATIONS.find(m => m.name === name);
+    if (!med) return;
+    const btn = document.createElement('button');
+    btn.className = 'quick-btn';
+    btn.innerHTML = `<span class="cat-dot" style="background:${med.color}"></span>${name}`;
+    btn.title = med.cat;
+    btn.addEventListener('click', () => addDrug(name));
+    grid.appendChild(btn);
+  });
+}
+
+// ── Drug tag management ───────────────────────────────────────────────────────
+function addDrug(name) {
+  const normalised = name.trim();
+  if (!normalised || selectedDrugs.map(d=>d.toLowerCase()).includes(normalised.toLowerCase())) return;
+  selectedDrugs.push(normalised);
+  renderTags();
+  updateBtn();
+  document.getElementById('drug-input').value = '';
+  closeAutocomplete();
+}
+
+function removeDrug(name) {
+  selectedDrugs = selectedDrugs.filter(d => d !== name);
+  renderTags();
+  updateBtn();
+}
+
+function renderTags() {
+  const box = document.getElementById('tags-box');
+  // Remove old tags
+  box.querySelectorAll('.drug-tag').forEach(t => t.remove());
+  selectedDrugs.forEach(name => {
+    const tag = document.createElement('span');
+    tag.className = 'drug-tag';
+    tag.innerHTML = `${name}<button title="Remove" onclick="removeDrug('${name}')">×</button>`;
+    box.insertBefore(tag, document.getElementById('drug-input'));
+  });
+}
+
+function updateBtn() {
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = selectedDrugs.length < 2;
+}
+
+// ── Autocomplete ──────────────────────────────────────────────────────────────
+let acIdx = -1;
+
+function openAutocomplete(query) {
+  const list = document.getElementById('autocomplete-list');
+  const matches = MEDICATIONS.filter(m =>
+    m.name.toLowerCase().startsWith(query.toLowerCase()) &&
+    !selectedDrugs.map(d=>d.toLowerCase()).includes(m.name.toLowerCase())
+  ).slice(0, 8);
+
+  list.innerHTML = '';
+  acIdx = -1;
+
+  if (!matches.length) { list.classList.remove('open'); return; }
+
+  matches.forEach((med, i) => {
+    const item = document.createElement('div');
+    item.className = 'autocomplete-item';
+    item.dataset.idx = i;
+    item.innerHTML = `<span class="cat-dot" style="width:8px;height:8px;border-radius:50%;background:${med.color};display:inline-block"></span>
+      ${med.name}<span class="pill-cat">${med.cat}</span>`;
+    item.addEventListener('mousedown', e => { e.preventDefault(); addDrug(med.name); });
+    list.appendChild(item);
+  });
+  list.classList.add('open');
+}
+
+function closeAutocomplete() {
+  document.getElementById('autocomplete-list').classList.remove('open');
+  acIdx = -1;
+}
+
+document.getElementById('drug-input').addEventListener('input', e => {
+  const q = e.target.value.trim();
+  if (q.length > 0) openAutocomplete(q);
+  else closeAutocomplete();
+});
+
+document.getElementById('drug-input').addEventListener('keydown', e => {
+  const list = document.getElementById('autocomplete-list');
+  const items = list.querySelectorAll('.autocomplete-item');
+  if (e.key === 'ArrowDown') {
+    acIdx = Math.min(acIdx + 1, items.length - 1);
+    items.forEach((it, i) => it.classList.toggle('active', i === acIdx));
+    e.preventDefault();
+  } else if (e.key === 'ArrowUp') {
+    acIdx = Math.max(acIdx - 1, -1);
+    items.forEach((it, i) => it.classList.toggle('active', i === acIdx));
+    e.preventDefault();
+  } else if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault();
+    if (acIdx >= 0 && items[acIdx]) {
+      const name = items[acIdx].childNodes[1].textContent.trim();
+      addDrug(name);
+    } else if (e.target.value.trim()) {
+      addDrug(e.target.value.trim());
+    }
+  } else if (e.key === 'Escape') {
+    closeAutocomplete();
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.autocomplete-wrap')) closeAutocomplete();
+});
+
+// ── Tags box click focuses input ──────────────────────────────────────────────
+document.getElementById('tags-box').addEventListener('click', () => {
+  document.getElementById('drug-input').focus();
+});
+
+// ── Analyze ───────────────────────────────────────────────────────────────────
+document.getElementById('analyze-btn').addEventListener('click', analyze);
+
+const SEVERITY_RANK = { safe: 0, caution: 1, warning: 2, danger: 3 };
+
+async function analyzePair(drugA, drugB) {
+  const text = `The combination of ${drugA} and ${drugB} may result in a drug interaction.`;
+  const res = await fetch(`${API_BASE}/api/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drug_a: drugA, drug_b: drugB, text })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'API error');
+  }
+  return res.json();
+}
+
+async function analyze() {
+  if (selectedDrugs.length < 2) return;
+
+  const btn = document.getElementById('analyze-btn');
+  btn.classList.add('loading');
+  btn.disabled = true;
+
+  const resultsEl = document.getElementById('results');
+  resultsEl.classList.remove('visible');
+
+  try {
+    if (selectedDrugs.length === 2) {
+      const data = await analyzePair(selectedDrugs[0], selectedDrugs[1]);
+      showResults(data, selectedDrugs);
+    } else {
+      const pairs = [];
+      for (let i = 0; i < selectedDrugs.length; i++) {
+        for (let j = i + 1; j < selectedDrugs.length; j++) {
+          pairs.push([selectedDrugs[i], selectedDrugs[j]]);
+        }
+      }
+
+      const pairResults = await Promise.all(
+        pairs.map(async ([a, b]) => ({
+          drugA: a,
+          drugB: b,
+          result: await analyzePair(a, b),
+        }))
+      );
+      showMultiResults(pairResults, selectedDrugs);
+    }
+
+  } catch (err) {
+    showError(`Could not reach the MedGuard API at <strong>${API_BASE}/api/analyze</strong>.<br>Make sure FastAPI is running: <code>uvicorn main:app --reload</code> (port 8000).`);
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = selectedDrugs.length < 2;
+  }
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+const SEV_ICONS = { safe:'✅', caution:'⚠️', warning:'🔶', danger:'🚨' };
+const SEVERITY_LABELS_NICE = { safe:'Safe', caution:'Caution', warning:'Warning', danger:'Danger' };
+const DDI_LABELS = {
+  false:     'No interaction detected',
+  mechanism: 'Pharmacokinetic / Mechanism-based',
+  effect:    'Pharmacodynamic / Effect-based',
+  advise:    'Advisory / Monitoring required',
+  int:       'Interaction (generic)',
+};
+
+function getDisplayInteractionLabel(interactionType, severityLabel) {
+  if (interactionType === 'false' && severityLabel && severityLabel !== 'safe') {
+    return 'Potential interaction (model uncertainty)';
+  }
+  return DDI_LABELS[interactionType] || interactionType;
+}
+
+function showResults(data, drugs) {
+  const el = document.getElementById('results');
+  const sev = data.severity_label || 'safe';
+  const intType = getDisplayInteractionLabel(data.interaction_type, sev);
+
+  const detected = data.detected_entities.filter(e => e.label === 'B-DRUG');
+  const detectedHtml = detected.length
+    ? detected.map(e => `<span class="detected-drug-tag">${e.text}</span>`).join('')
+    : drugs.map(d => `<span class="detected-drug-tag">${d}</span>`).join('');
+
+  // Confidence bars — interaction head
+  const intConf = data.confidence?.interaction || {};
+  const intBarsHtml = Object.entries(intConf)
+    .sort((a,b) => b[1]-a[1])
+    .map(([label, prob]) => {
+      const pct = Math.round(prob * 100);
+      const nice = DDI_LABELS[label] || label;
+      return `<div class="conf-bar-wrap">
+        <div class="conf-bar-top"><span>${nice}</span><span>${pct}%</span></div>
+        <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+
+  // Severity bars
+  const sevConf = data.confidence?.severity || {};
+  const sevBarsHtml = Object.entries(sevConf)
+    .sort((a,b) => b[1]-a[1])
+    .map(([label, prob]) => {
+      const pct = Math.round(prob * 100);
+      return `<div class="conf-bar-wrap">
+        <div class="conf-bar-top"><span style="text-transform:capitalize">${label}</span><span>${pct}%</span></div>
+        <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+
+  // KG context
+  let kgHtml = '';
+  const kg = data.kg_context || {};
+  if (kg.known_interaction?.description) {
+    kgHtml = `<div class="kg-desc">${kg.known_interaction.description}</div>`;
+  }
+  const kgStatus = kg.status || 'N/A';
+  const kgRows = [
+    ['Status', kgStatus],
+    kg.drug_a ? ['Drug A in Graph', kg.drug_a_in_graph ? '✓ Yes' : '✗ No'] : null,
+    kg.drug_b ? ['Drug B in Graph', kg.drug_b_in_graph ? '✓ Yes' : '✗ No'] : null,
+    kg.known_interaction?.severity != null ? ['KG Severity', kg.known_interaction.severity_label] : null,
+  ].filter(Boolean);
+
+  const kgRowsHtml = kgRows.map(([k,v]) => `
+    <div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
+
+  // Lipinski
+  const lip = data.lipinski_context || {};
+  const lipHtml = Object.entries(lip).map(([name, info]) => {
+    if (!info.available) return `<div class="kv-row"><span class="kv-key">${name}</span><span class="kv-val" style="color:#94a3b8">Not in dataset</span></div>`;
+    return `
+      <div style="margin-bottom:.5rem">
+        <div class="kv-row"><span class="kv-key" style="font-weight:600;color:var(--blue-700)">${name}</span><span class="kv-val" style="font-size:.75rem;color:var(--gray-400)">Ro5: ${info.ro5_fulfilled?'✓':'✗'}</span></div>
+        <div class="kv-row"><span class="kv-key">MW</span><span class="kv-val">${info.molecular_weight} g/mol</span></div>
+        <div class="kv-row"><span class="kv-key">logP</span><span class="kv-val">${info.logp}</span></div>
+        <div class="kv-row"><span class="kv-key">H-bond acceptors</span><span class="kv-val">${info.n_hba}</span></div>
+        <div class="kv-row"><span class="kv-key">H-bond donors</span><span class="kv-val">${info.n_hbd}</span></div>
+      </div>`;
+  }).join('') || '<div class="kv-row"><span class="kv-key">Status</span><span class="kv-val">No data</span></div>';
+
+  el.innerHTML = `
+    <!-- Severity Banner -->
+    <div class="severity-banner ${sev}">
+      <div class="sev-icon">${SEV_ICONS[sev] || '💊'}</div>
+      <div>
+        <div class="sev-label" style="text-transform:capitalize">${sev} — ${intType}</div>
+        <div class="sev-sub">Severity level ${data.severity_level}/3 · Interaction type: <strong>${data.interaction_type}</strong> · Interaction source: <strong>${data.interaction_source === "drugbank_kg" ? "🗄️ DrugBank KG" : "🤖 Trained Model"}</strong> · Severity source: <strong>${data.severity_source === "drugbank_kg" ? "🗄️ DrugBank KG" : "🤖 Trained Model"}</strong></div>
+      </div>
+    </div>
+
+    <!-- Reason box -->
+    <div style="background:var(--blue-50);border:1.5px solid var(--blue-200,#bfdbfe);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;gap:.75rem;align-items:flex-start;">
+      <span style="font-size:1.2rem;flex-shrink:0">💬</span>
+      <div>
+        <div style="font-size:.7rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--blue-500);margin-bottom:.3rem">Interaction Reason</div>
+        <div style="font-size:.92rem;color:var(--gray-800);line-height:1.6">${data.interaction_reason || 'No reason available.'}</div>
+        ${data.evidence_text ? `<div style="margin-top:.6rem;padding:.65rem .75rem;border-radius:8px;background:#f8fafc;border-left:3px solid #93c5fd;font-size:.85rem;color:#334155"><strong>Pair-specific evidence:</strong> ${data.evidence_text}</div>` : ''}
+        <div style="margin-top:.6rem;padding:.65rem .75rem;border-radius:8px;background:#f8fafc;border-left:3px solid #86efac;font-size:.85rem;color:#334155"><strong>What to do:</strong> ${data.plain_guidance || 'Consult your clinician/pharmacist for personalized advice.'}</div>
+      </div>
+    </div>
+
+    <!-- Row 1: NER + KG -->
+    <div class="cards-row">
+      <div class="info-card">
+        <h3>Named Entity Recognition</h3>
+        <div class="section-label" style="font-size:.68rem;margin-bottom:.35rem">Detected drug entities</div>
+        <div class="detected-drugs">${detectedHtml}</div>
+        <div style="margin-top:1rem">
+          <div class="kv-row"><span class="kv-key">Total detected</span><span class="kv-val">${detected.length || drugs.length} drugs</span></div>
+          <div class="kv-row"><span class="kv-key">Inference text</span><span class="kv-val" style="font-size:.78rem">${data.inference_text || ''}</span></div>
+        </div>
+      </div>
+      <div class="info-card">
+        <h3>Knowledge Graph</h3>
+        ${kgRowsHtml}
+        ${kgHtml}
+      </div>
+    </div>
+
+    <!-- Row 2: Model output summary -->
+    <div class="cards-row">
+      <div class="info-card">
+        <h3>Interaction Head Output</h3>
+        <div class="kv-row">
+          <span class="kv-key">Predicted class</span>
+          <span class="kv-val" style="color:var(--blue-700)">${intType}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-key">Confidence</span>
+          <span class="kv-val">${Math.round((intConf[data.interaction_type]||0)*100)}%</span>
+        </div>
+        <div style="margin-top:.75rem">
+          <div class="section-label" style="font-size:.65rem;margin-bottom:.4rem">All class probabilities</div>
+          ${intBarsHtml}
+        </div>
+      </div>
+      <div class="info-card">
+        <h3>Severity Head Output</h3>
+        <div class="kv-row">
+          <span class="kv-key">Model prediction</span>
+          <span class="kv-val" style="text-transform:capitalize;color:var(--blue-700)">${data.severity_label}</span>
+        </div>
+        <div class="kv-row">
+          <span class="kv-key">Source</span>
+          <span class="kv-val">${data.severity_source === "drugbank_kg" ? "🗄️ DrugBank KG" : "🤖 Bio_ClinicalBERT (fine-tuned)"}</span>
+        </div>
+        ${data.kg_context?.known_interaction ? `<div class="kv-row"><span class="kv-key">KG severity</span><span class="kv-val" style="text-transform:capitalize">🗄️ ${data.kg_context.known_interaction.severity_label} (DrugBank)</span></div>` : ''}
+        <div style="margin-top:.75rem">
+          <div class="section-label" style="font-size:.65rem;margin-bottom:.4rem">All class probabilities</div>
+          ${sevBarsHtml}
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Lipinski -->
+    <div class="info-card" style="margin-bottom:0">
+      <h3>Lipinski Physicochemical Properties</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.5rem">
+        ${lipHtml}
+      </div>
+    </div>
+  `;
+
+  el.classList.add('visible');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showMultiResults(pairResults, drugs) {
+  const el = document.getElementById('results');
+  const sorted = [...pairResults].sort((a, b) => {
+    const ra = SEVERITY_RANK[a.result.severity_label] ?? 0;
+    const rb = SEVERITY_RANK[b.result.severity_label] ?? 0;
+    return rb - ra;
+  });
+  const top = sorted[0]?.result || { severity_label: 'safe', severity_level: 0 };
+  const topSev = top.severity_label || 'safe';
+  const riskyCount = sorted.filter(p => (SEVERITY_RANK[p.result.severity_label] ?? 0) > 0).length;
+  const criticalTop = sorted.filter(p => (SEVERITY_RANK[p.result.severity_label] ?? 0) >= 2).slice(0, 3);
+
+  const reasonGroups = new Map();
+  sorted.forEach(({ drugA, drugB, result }) => {
+    const key = `${result.interaction_type}|${result.severity_label}|${(result.evidence_text || result.interaction_reason || '').slice(0, 80)}`;
+    if (!reasonGroups.has(key)) {
+      reasonGroups.set(key, {
+        interactionType: result.interaction_type,
+        severity: result.severity_label,
+        reason: result.evidence_text || result.interaction_reason || 'No reason available.',
+        pairs: [],
+      });
+    }
+    reasonGroups.get(key).pairs.push(`${drugA} + ${drugB}`);
+  });
+  const grouped = Array.from(reasonGroups.values()).slice(0, 4);
+
+  const pairCards = sorted.map(({ drugA, drugB, result }) => {
+    const sev = result.severity_label || 'safe';
+    const intType = getDisplayInteractionLabel(result.interaction_type, sev);
+    const source = result.severity_source === 'drugbank_kg' ? 'DrugBank KG' : 'Model';
+    return `
+      <div class="info-card" style="margin-bottom:.85rem;border-left:4px solid ${result.severity_color || '#93c5fd'}">
+        <div class="kv-row"><span class="kv-key"><strong>${drugA} + ${drugB}</strong></span><span class="kv-val" style="text-transform:capitalize">${sev}</span></div>
+        <div class="kv-row"><span class="kv-key">Interaction</span><span class="kv-val">${intType}</span></div>
+        <div class="kv-row"><span class="kv-key">Source</span><span class="kv-val">${source}</span></div>
+        ${result.evidence_text ? `<div class="kg-desc"><strong>Evidence:</strong> ${result.evidence_text}</div>` : ''}
+        <div class="kg-desc">${result.interaction_reason || 'No additional reason available.'}</div>
+        <div class="kg-desc" style="border-left-color:#86efac"><strong>What to do:</strong> ${result.plain_guidance || 'Consult clinician/pharmacist for personalized advice.'}</div>
+      </div>
+    `;
+  }).join('');
+
+  const topHtml = criticalTop.length
+    ? criticalTop.map(({ drugA, drugB, result }) => `
+      <div class="kv-row"><span class="kv-key"><strong>${drugA} + ${drugB}</strong></span><span class="kv-val" style="text-transform:capitalize">${result.severity_label}</span></div>
+    `).join('')
+    : `<div class="kv-row"><span class="kv-key">Top critical pairs</span><span class="kv-val">None</span></div>`;
+
+  const groupedHtml = grouped.map(g => `
+    <div style="margin-bottom:.75rem;padding:.7rem .8rem;border:1px solid var(--gray-100);border-radius:8px;background:#fff">
+      <div style="font-size:.82rem;color:var(--gray-700);margin-bottom:.35rem"><strong style="text-transform:capitalize">${g.severity}</strong> · ${DDI_LABELS[g.interactionType] || g.interactionType}</div>
+      <div style="font-size:.82rem;color:var(--gray-600);margin-bottom:.35rem">${g.reason}</div>
+      <div style="font-size:.8rem;color:var(--gray-500)">Pairs: ${g.pairs.join(', ')}</div>
+    </div>
+  `).join('');
+
+  el.innerHTML = `
+    <div class="severity-banner ${topSev}">
+      <div class="sev-icon">${SEV_ICONS[topSev] || '💊'}</div>
+      <div>
+        <div class="sev-label" style="text-transform:capitalize">Overall risk: ${SEVERITY_LABELS_NICE[topSev] || topSev}</div>
+        <div class="sev-sub">${drugs.length} medications · ${pairResults.length} pairs analyzed · ${riskyCount} pair(s) with caution/warning/danger</div>
+      </div>
+    </div>
+    <div class="cards-row">
+      <div class="info-card">
+        <h3>Top Critical Pairs</h3>
+        ${topHtml}
+      </div>
+      <div class="info-card">
+        <h3>Deduplicated Risk Themes</h3>
+        ${groupedHtml || '<div class="kv-row"><span class="kv-key">Themes</span><span class="kv-val">No dominant theme</span></div>'}
+      </div>
+    </div>
+    <div class="info-card" style="margin-bottom:1rem">
+      <h3>Pairwise Interaction Results</h3>
+      ${pairCards}
+    </div>
+  `;
+
+  el.classList.add('visible');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showError(msg) {
+  const el = document.getElementById('results');
+  el.innerHTML = `<div class="error-box"><span style="font-size:1.3rem">⚠️</span><div><strong>Error</strong><br>${msg}</div></div>`;
+  el.classList.add('visible');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildQuickGrid();
+
+// ── Anthropic assistant (/api/assistant/chat) ────────────────────────────────
+let assistantHistory = [];
+
+async function refreshAssistantStatus() {
+  const el = document.getElementById('assistant-status');
+  const sendBtn = document.getElementById('assistant-send');
+  const replyEl = document.getElementById('assistant-reply');
+  try {
+    const r = await fetch(`${API_BASE}/api/assistant/status`);
+    const d = await r.json();
+    const problems = [];
+    if (!d.anthropic_sdk_installed) problems.push('Anthropic SDK missing (pip install -r requirements-llm.txt).');
+    if (!d.anthropic_api_key_configured) problems.push('ANTHROPIC_API_KEY not set on the server (set env var, restart python main.py).');
+    if (problems.length) {
+      el.textContent = problems.join(' ');
+      sendBtn.disabled = true;
+      replyEl.classList.add('muted');
+      replyEl.textContent = 'Send is disabled until the server has ANTHROPIC_API_KEY. The structured analyze flow above still works without it.';
+    } else {
+      el.textContent = `Ready — default model ${d.default_model}. DDI questions use MedGuard via tool call; general questions are answered without the tool.`;
+      sendBtn.disabled = false;
+    }
+  } catch {
+    el.textContent = 'Could not reach /api/assistant/status.';
+    sendBtn.disabled = true;
+    replyEl.classList.add('muted');
+    replyEl.textContent = 'Cannot reach assistant status endpoint.';
+  }
+}
+
+function assistantDetail(errBody) {
+  if (!errBody) return '';
+  if (typeof errBody.detail === 'string') return errBody.detail;
+  if (Array.isArray(errBody.detail)) return JSON.stringify(errBody.detail);
+  return JSON.stringify(errBody);
+}
+
+async function sendAssistant() {
+  const input = document.getElementById('assistant-input');
+  const replyEl = document.getElementById('assistant-reply');
+  const sendBtn = document.getElementById('assistant-send');
+  if (sendBtn.disabled) return;
+  const text = (input.value || '').trim();
+  if (!text) return;
+
+  assistantHistory.push({ role: 'user', content: text });
+  input.value = '';
+  replyEl.classList.remove('muted');
+  replyEl.textContent = 'Waiting for assistant…';
+  sendBtn.disabled = true;
+
+  try {
+    const r = await fetch(`${API_BASE}/api/assistant/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: assistantHistory }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      assistantHistory.pop();
+      replyEl.textContent = assistantDetail(data) || r.statusText || 'Request failed.';
+      return;
+    }
+    assistantHistory.push({ role: 'assistant', content: data.reply || '' });
+    replyEl.textContent = data.reply || '(empty reply)';
+  } catch {
+    assistantHistory.pop();
+    replyEl.textContent = 'Network error — is the API running?';
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+document.getElementById('assistant-send').addEventListener('click', sendAssistant);
+document.getElementById('assistant-clear').addEventListener('click', () => {
+  assistantHistory = [];
+  document.getElementById('assistant-input').value = '';
+  document.getElementById('assistant-reply').textContent = 'Reply appears here. Drug-interaction questions invoke MedGuard on the server as a tool; the model must stay consistent with that JSON.';
+  document.getElementById('assistant-reply').classList.add('muted');
+});
+
+document.querySelectorAll('.assistant-example-chip').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const msg = btn.getAttribute('data-assistant-msg');
+    if (!msg) return;
+    const input = document.getElementById('assistant-input');
+    input.value = msg;
+    input.focus();
+  });
+});
+document.getElementById('assistant-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendAssistant();
+  }
+});
+
+refreshAssistantStatus();
+
+</script>
+</body>
+</html>
