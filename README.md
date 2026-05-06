@@ -175,18 +175,36 @@ Base prefix: `/api`
 ## Known Limitations
 
 - Stage 3 severity is trained only on pairs that can be linked to DDInter.
+  - What we did: built a deterministic 3-layer linker (DrugBank synonyms + DDInter vocabulary + passthrough), logged run-level linking snapshots, and reported coverage in training output.
+  - Why this limitation remains: DDInter does not cover all DDI Corpus pairs, and some mentions are too ambiguous to map reliably without adding noisy labels.
+
 - Some corpus entities are drug classes, not specific ingredients.
+  - What we did: added explicit class routing (`class_routing`) so these cases are identified and not force-mapped to wrong ingredient names.
+  - Why this limitation remains: many KBs are ingredient-focused, so class-level mentions are not always directly linkable to pair labels.
+
 - KG coverage is incomplete; missing drugs use zero vectors.
+  - What we did: designed graceful fallback to zero KG/Lipinski vectors and exposed modality coverage flags in API output.
+  - Why this limitation remains: the KG is a practical subgraph for this project scope, not full DrugBank graph coverage at all times.
+
 - `caution` class is still low-support.
+  - What we did: used class-aware losses (weighted CE in Stage 2, Balanced Softmax in Stage 3) and reported class distributions.
+  - Why this limitation remains: real label distribution is long-tail and caution examples are limited.
+
 - Probability calibration is not fully studied yet (no full ECE/Brier analysis in this repo).
-- Automated tests are currently lightweight (more smoke/integration tests are planned).
+  - What we did: return full class probability vectors for transparency instead of only top labels.
+  - Why this limitation remains: calibration study was out of current project time scope.
+
+- Automated tests are currently lightweight.
+  - What we did: focused on pipeline correctness, endpoint health checks, and reproducible training/inference behavior first.
+  - Why this limitation remains: comprehensive unit/integration test suite is planned as the next engineering hardening step.
 
 ### Data Split Note (for academic review)
 
 - Current runs used sentence-level train/validation split while building and stabilizing the full pipeline.
 - This can overestimate validation when related pairs appear across splits.
 - Official corpus test evaluation should be treated as more important.
-- Planned upgrade: retrain with strict pair-level or document-level split.
+- Why we moved forward with it: the priority was to first complete and validate the full end-to-end system (3-stage training, linker, KG/Lipinski fusion, API, assistant layer) with a consistent protocol.
+- Planned upgrade: retrain with strict pair-level or document-level split as the next methodological improvement.
 
 ## Reproducibility Notes
 
