@@ -21,11 +21,11 @@ Stage 2 — Interaction Head
 Stage 3 — Severity Head
   - Loads Stage 2 checkpoint.
   - Encoder FROZEN, Interaction head FROZEN.
-  - Severity labels: DrugBank silver labels (distant supervision via keyword
-    matching on interaction descriptions). This is explicitly a heuristic
-    approach — documented as such, not claimed as gold-standard annotation.
-    Reference: Mintz et al. (2009) "Distant supervision for relation extraction".
-  - Loss: CrossEntropyLoss with class weights.
+  - Severity labels: curated DDInter risk levels mapped into
+    safe/caution/warning/danger classes.
+  - Unlabeled positive pairs (not linkable to DDInter) are excluded and
+    coverage is reported explicitly.
+  - Loss: Balanced Softmax (logit adjustment) for long-tail imbalance.
   - Saves: checkpoints/stage3_severity_best.pt
 
 Run from backend/:

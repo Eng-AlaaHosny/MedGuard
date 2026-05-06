@@ -1,16 +1,14 @@
-## MedGuard Training Report (Current Project State)
+## MedGuard Project Report
 
-This README documents the latest training pipeline, data linking strategy, and final training outcomes for academic review.
+This file explains what I built, how I trained it, and what the current results are.
 
-## Teacher Quick View
+## Quick Summary
 
-- The final system trains in 3 stages: NER, interaction type, then severity.
-- Stage 3 severity training uses **DDInter curated labels**, not the broken DrugBank keyword heuristic labels.
-- Entity linking was upgraded to a **deterministic 3-layer resolver** using DrugBank synonym expansion, DDInter vocabulary anchoring, and snapshot logging for reproducibility.
-- Stage 1 final metric is captured: **Best NER macro-F1 = 0.9517**.
-- Final full-run results reached **DDI macro-F1 = 0.4190** (Stage 2) and **Severity macro-F1 = 0.3602** (Stage 3).
-- Stage 3 severity coverage improved to **23.31%** of positive DDI pairs after the final linking redesign.
-- A controlled Stage 2 **Focal Loss** experiment was run and rejected because it underperformed baseline (**0.2442** vs **0.4190**), so baseline CE was kept.
+- The model is trained in 3 stages: NER, interaction type, then severity.
+- Stage 3 uses **DDInter curated severity labels** (not DrugBank keyword labels).
+- Entity linking uses a deterministic 3-layer resolver.
+- Stage 3 uses **Balanced Softmax** to handle class imbalance.
+- Runtime uses Stage 3 as the main model and Stage 2 as a dedicated interaction model.
 
 ## Project Goal
 
@@ -20,103 +18,119 @@ MedGuard predicts:
 - DDI interaction type (interaction head)
 - DDI severity (severity head)
 
-Training is done in 3 stages:
+## Model Architecture (Short Version)
 
-1. Stage 1: NER
-2. Stage 2: Interaction
-3. Stage 3: Severity
+- Backbone: `emilyalsentzer/Bio_ClinicalBERT`
+- Heads:
+  - NER head (token classification: `O`, `B-DRUG`, `I-DRUG`)
+  - Interaction head (`false`, `mechanism`, `effect`, `advise`, `int`)
+  - Severity head (`safe`, `caution`, `warning`, `danger`)
+- Extra features:
+  - KG embedding per drug (128-dim)
+  - Lipinski features per drug (5 values)
+- Fusion:
+  - For each drug, model fuses BERT span + KG + Lipinski
+  - Then predicts interaction and severity from pair representation
 
----
+## Training Design
 
-## Why The Pipeline Was Updated
+### Stage 1 (NER)
+- Trains the NER head for drug entities.
+- Best checkpoint: `backend/app/models/checkpoints/stage1_ner_best.pt`
 
-Three issues were identified and fixed:
+### Stage 2 (Interaction)
+- Trains interaction type (`false`, `mechanism`, `effect`, `advise`, `int`).
+- Loss in current code: `CrossEntropyLoss(weight=ddi_w)`.
+- Best checkpoint: `backend/app/models/checkpoints/stage2_interaction_best.pt`
 
-- DrugBank heuristic severity labels were highly skewed and not usable for severity training.
-- Stage 3 severity coverage collapsed when string linking failed between DDI Corpus and DDInter.
-- Stage 2 KG coverage is incomplete (handled with zero vectors and reported as limitation).
+### Stage 3 (Severity)
+- Trains severity (`safe`, `caution`, `warning`, `danger`) using DDInter-curated labels.
+- Uses deterministic name linking + coverage reporting.
+- Uses Balanced Softmax for long-tail labels.
+- Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
----
+## Training Defaults (from current code)
 
-## The current Design 
+- Stage 1 defaults:
+  - epochs: 5
+  - batch size: 16
+  - lr: 2e-5
+  - val split: 0.15
+- Stage 2 defaults:
+  - epochs: 10
+  - batch size: 4
+  - lr: 1e-4
+  - gradient accumulation: 4
+  - val split: 0.15
+- Stage 3 defaults:
+  - epochs: 10
+  - batch size: 4
+  - lr: 1e-4
+  - gradient accumulation: 4
+  - val split: 0.15
 
-### 1) Severity Labels Source
+## Runtime Checkpoint Policy (matches code)
 
-- Stage 3 uses **DDInter curated labels** only.
-- It does **not** train from DrugBank heuristic severity labels.
+From `backend/main.py`:
 
-### 2) Deterministic Entity Linking (for Stage 3)
+- Main model checkpoints (priority):
+  1. `backend/app/models/checkpoints/stage3_severity_best.pt`
+  2. `backend/app/models/checkpoints/best_model_3heads.pt` (legacy fallback)
+- Interaction model:
+  - `backend/app/models/checkpoints/stage2_interaction_best.pt`
+  - if missing, interaction falls back to main model
+- `stage1_ner_best.pt` is training-only (used to initialize Stage 2 training).
 
-A 3-layer resolver is used:
+## Inference Behavior (important)
 
-1. DrugBank synonym expansion (`drugbank_synonyms` table in `drugbank.db`)
-2. DDInter vocabulary anchoring (`ddinter_drug_names` table in `drugbank.db`)
-3. Passthrough when unresolved
+- Main endpoint takes explicit drug names: `drug_a`, `drug_b`.
+- Optional text can be provided (`text` field).
+- If text is empty, backend creates a short template sentence for inference.
+- No training-corpus sentence substitution is used at inference.
 
-Drug-class mentions are explicitly routed (`class_routing`) and reported, not force-mapped to ingredient names.
+## Data Used
 
-### 3) Reproducibility / Auditability
-
-- Every linking decision is logged to `backend/app/data/linking_snapshots.sqlite`
-- Each run has a `run_id`
-- Matching methods are tracked (e.g., `ddinter_surface`, `ddinter_from_drugbank_synonym`, `passthrough`)
-
-### 4) Stage 3 Imbalance Handling
-
-- Stage 3 uses **Balanced Softmax (logit adjustment)** with class priors from training labels.
-
----
-
-## Data Assets Used
-
-- DDI Corpus (train/test XML)
+- DDI Corpus (XML)
 - DrugBank XML (`full database.xml`)
 - DrugBank SQLite (`drugbank.db`)
 - DDInter CSV files (`ddinter_code_*.csv`)
-- KG embeddings (`knowledge_graph.pkl`)
-- Lipinski features (`DB_compounds_lipinski.csv`)
+- KG file (`knowledge_graph.pkl`)
+- Lipinski file (`DB_compounds_lipinski.csv`)
 
----
+## Data / Build Pipeline
 
-## Final Full Training Results (Latest Run)
+1. Parse DrugBank XML and build SQLite DB:
+   - `python -m app.data.drugbank_processor`
+   - Produces `backend/app/data/drugbank.db`
+2. Build KG (if needed):
+   - `python -m app.knowledge_graph.kg_builder_full`
+   - Produces `knowledge_graph.pkl` and `kg_embeddings.pkl`
+3. Keep DDInter CSV files in `backend/app/data/` as `ddinter_code_*.csv`
+4. Run training stages
 
-Command used:
+## Latest Training Results
+
+Training command:
 
 ```bash
 python -m app.models.trainer --stage all
 ```
 
-### Stage 1 (NER)
+Results:
 
-- Best NER macro-F1: **0.9517**
-- Output checkpoint: `backend/app/models/checkpoints/stage1_ner_best.pt`
-- Interpretation: Stage 1 learns token-level drug mention boundaries (B-DRUG / I-DRUG), and its checkpoint is used as the initialization source for Stage 2.
-
-### Stage 2 (Interaction)
-
-- Best DDI macro-F1: **0.4190**
-- Output checkpoint: `backend/app/models/checkpoints/stage2_interaction_best.pt`
-- Interpretation: interaction-type learning is stable across minority classes (`mechanism`, `effect`, `advise`, `int`) with a usable macro-F1 for downstream stage transfer.
-
-Controlled rare-class experiment (teacher-facing):
-
-- Tested one principled variant: `FocalLoss(gamma=2.0)` in Stage 2.
-- Result: **Best DDI macro-F1 = 0.2442** (worse than baseline **0.4190**).
-- Decision rule: keep only if it wins.
-- Final decision: revert Focal Loss and keep baseline `CrossEntropyLoss(weight=ddi_w)`.
-
-### Stage 3 (Severity)
-
-- Coverage (DDI positives linked to DDInter): **795 / 3411 = 23.31%**
-- Skipped class mentions: **539**
-- Best Severity macro-F1: **0.3602**
-- Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
+- Stage 1 (NER) best macro-F1: **0.9517**
+- Stage 2 (interaction) best macro-F1: **0.4190**
+- Stage 3 (severity) best macro-F1: **0.3602**
+- Stage 3 DDInter coverage: **795 / 3411 = 23.31%**
+- Stage 3 skipped class mentions: **539**
 - Linking snapshot run id: `854063fe93f2b781`
-- Interpretation: after deterministic linking + Balanced Softmax, Stage 3 no longer collapses to a single class and reaches the strongest severity result obtained in this project state.
 
----
+Note on focal loss:
 
-## Commands (Reproducible Workflow)
+- A focal-loss test was done earlier outside the current committed trainer path.
+- The current repository keeps CE for Stage 2 and that is the canonical training path.
+
+## How To Run
 
 From `backend/`:
 
@@ -124,9 +138,10 @@ From `backend/`:
 .\venv\Scripts\Activate.ps1
 python -m app.data.drugbank_processor
 python -m app.models.trainer --stage all
+python main.py
 ```
 
-Stage-by-stage (optional):
+Optional stage-by-stage training:
 
 ```bash
 python -m app.models.trainer --stage 1
@@ -134,51 +149,80 @@ python -m app.models.trainer --stage 2
 python -m app.models.trainer --stage 3
 ```
 
-Run demo API:
+## API Endpoints
 
-```bash
-python main.py
-```
+Base prefix: `/api`
 
----
+- `POST /api/analyze`
+  - Request body:
+    - `drug_a` (string, required)
+    - `drug_b` (string, required)
+    - `text` (string, optional)
+  - Returns:
+    - predicted interaction type + confidence
+    - predicted severity + confidence
+    - detected entities
+    - KG context
+    - Lipinski context
+    - modality coverage flags
 
-## Known Limitations 
+- `GET /api/health`
+  - Quick status of model/tokenizer/KG/Lipinski loading and assistant key config
 
-- Stage 3 severity supervision is on the linked subset only (coverage reported each run).
-- Some DDI mentions are drug classes and are excluded from direct DDInter pair matching.
-- KG coverage is partial; unmatched mentions use zero KG vectors by design.
-- `caution` class remains low-support and difficult.
+- `GET /api/drugs?limit=50`
+  - Sample of drug names currently available in KG
 
----
+## Known Limitations
 
-## 
+- Stage 3 severity is trained only on pairs that can be linked to DDInter.
+- Some corpus entities are drug classes, not specific ingredients.
+- KG coverage is incomplete; missing drugs use zero vectors.
+- `caution` class is still low-support.
+- Probability calibration is not fully studied yet (no full ECE/Brier analysis in this repo).
+- Automated tests are currently lightweight (more smoke/integration tests are planned).
 
-Entity linking was performed via a deterministic three-layer resolver:  
-(1) DrugBank synonym expansion,  
-(2) DDInter vocabulary anchoring,  
-(3) passthrough with documented coverage gaps.  
-All linking decisions were logged with method provenance and run identifiers for full reproducibility.
+### Data Split Note (for academic review)
 
----
+- Current runs used sentence-level train/validation split while building and stabilizing the full pipeline.
+- This can overestimate validation when related pairs appear across splits.
+- Official corpus test evaluation should be treated as more important.
+- Planned upgrade: retrain with strict pair-level or document-level split.
 
-## Addendum (after README freeze for teacher review — appended only)
+## Reproducibility Notes
 
-**Repository:** [MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
+- Linking decisions are stored in `backend/app/data/linking_snapshots.sqlite`.
+- Each run has a `run_id` and method tags (`ddinter_surface`, `ddinter_from_drugbank_synonym`, etc.).
 
-This block documents **runtime / demo** updates only. All sections above are unchanged.
+## Demo + Assistant Layer
 
-### Demo UI & API entry
+- API app: `backend/main.py`
+- Demo page: `backend/app/static/demo.html`
+- Assistant routes: `backend/app/api/assistant_routes.py`
+- LLM dependency: `backend/requirements-llm.txt`
 
-- **`backend/main.py`** — FastAPI app; after startup prints a bare `http://127.0.0.1:8000` line for easier terminal link detection.
-- **`backend/app/static/demo.html`** — Browser demo: common-medication quick grid, typed drug list + **Analyze Interactions** (same inference path as `POST /api/analyze`).
+Assistant setup:
 
+- Install: `pip install -r backend/requirements-llm.txt`
+- Set env var: `ANTHROPIC_API_KEY`
+- Optional env var: `ANTHROPIC_MODEL` (default `claude-3-5-haiku-20241022`)
+- Endpoints:
+  - `GET /api/assistant/status`
+  - `POST /api/assistant/chat`
 
+## Checkpoint / Artifact Policy
 
-### LLM orchestration (Anthropic + MedGuard tool)
+- Large model/data artifacts are intentionally excluded from git.
+- Required checkpoints are listed in `CHECKPOINTS.md`.
+- Runtime-critical checkpoints are:
+  - `stage3_severity_best.pt`
+  - `stage2_interaction_best.pt`
+- `stage1_ner_best.pt` is needed for stage-wise training workflow.
+- Optional legacy fallback (if present): `best_model_3heads.pt`
 
-- **Install:** `pip install -r backend/requirements-llm.txt`
-- **Env:** `ANTHROPIC_API_KEY` (required). Optional: `ANTHROPIC_MODEL` (default `claude-3-5-haiku-20241022`).
-- **Endpoints:** `GET /api/assistant/status`, `POST /api/assistant/chat` (body: `{ "messages": [ {"role":"user"|"assistant","content":"..."} ] }`).
-- **Tool:** `medguard_analyze_pair` → server runs `run_pair_inference` and returns **structured JSON**; system instructions require the model **not to contradict** tool outputs on severity / interaction type.
-- **Files:** `backend/app/api/assistant_routes.py`, `backend/requirements-llm.txt`; demo includes an **LLM assistant** panel calling these routes (keys stay server-side only).
+## Safety Note
+
+This project is for academic/research demonstration.  
+It is not a clinical decision-support system and must not replace licensed medical advice.
+
+Repository: [MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
 

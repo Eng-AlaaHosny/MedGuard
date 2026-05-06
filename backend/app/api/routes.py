@@ -15,11 +15,19 @@ Pipeline:
   4. Full forward pass — all 3 heads
   5. Build structured response with KG context
 
-Checkpoint loading priority (three-stage training):
-  stage3_severity_best.pt   →  all 3 heads trained
-  stage2_interaction_best.pt → NER + Interaction trained
-  stage1_ner_best.pt         → NER only trained
-  (fallback: random weights — model is untrained, results are meaningless)
+Runtime checkpoint policy (served by main.py):
+  Main model:
+    stage3_severity_best.pt  (preferred)
+    best_model_3heads.pt     (legacy fallback)
+    otherwise                pretrained backbone weights only
+
+  Interaction logits:
+    stage2_interaction_best.pt loaded into a dedicated interaction model
+    if missing, interaction falls back to the main model.
+
+Note:
+  stage1_ner_best.pt is a training-stage artifact used to initialize Stage 2
+  training; it is not part of the runtime fallback chain.
 """
 
 import os

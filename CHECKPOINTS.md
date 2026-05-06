@@ -7,6 +7,8 @@ backend/app/models/checkpoints/
 
 Expected files:
 stage1_ner_best.pt
-stage2_interaction_best_baseline_04190.pt
 stage2_interaction_best.pt
 stage3_severity_best.pt
+
+Optional legacy fallback (runtime only if present):
+best_model_3heads.pt
