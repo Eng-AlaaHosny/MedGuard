@@ -91,11 +91,28 @@ From `backend/main.py`:
 ## Data Used
 
 - DDI Corpus (XML)
+  - What it is: the main NLP dataset with sentences, drug entities, and DDI relation labels.
+  - Used for: Stage 1 NER training and Stage 2 interaction-type training.
+
 - DrugBank XML (`full database.xml`)
+  - What it is: structured drug knowledge source (drugs, descriptions, interactions, synonyms).
+  - Used for: building local `drugbank.db` and creating KG/linking resources.
+
 - DrugBank SQLite (`drugbank.db`)
+  - What it is: local processed DB built from DrugBank XML.
+  - Used for: fast lookup of synonyms/IDs/interactions during linking and inference context building.
+
 - DDInter CSV files (`ddinter_code_*.csv`)
+  - What it is: curated interaction risk-level tables from DDInter.
+  - Used for: Stage 3 severity labels after name linking to DDInter vocabulary.
+
 - KG file (`knowledge_graph.pkl`)
+  - What it is: prebuilt drug knowledge graph + node embeddings mapping.
+  - Used for: KG feature vectors and known-interaction context at inference.
+
 - Lipinski file (`DB_compounds_lipinski.csv`)
+  - What it is: physicochemical descriptors per DrugBank compound (MW, HBA, HBD, logP, Ro5).
+  - Used for: extra numerical features fused with BERT drug representations.
 
 ## Data / Build Pipeline
 
@@ -135,7 +152,7 @@ Note on focal loss:
 From `backend/`:
 
 ```bash
-.\venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m app.data.drugbank_processor
 python -m app.models.trainer --stage all
 python main.py
@@ -148,6 +165,21 @@ python -m app.models.trainer --stage 1
 python -m app.models.trainer --stage 2
 python -m app.models.trainer --stage 3
 ```
+
+### Run Demo (Web UI)
+
+1. Start the API:
+
+```bash
+python main.py
+```
+
+2. Open in browser:
+   - `http://127.0.0.1:8000`
+
+3. Use the page:
+   - Add 2+ drugs and click **Analyze Interactions**
+   - Optional: use assistant panel after setting `ANTHROPIC_API_KEY`
 
 ## API Endpoints
 
@@ -241,6 +273,36 @@ Assistant setup:
 
 This project is for academic/research demonstration.  
 It is not a clinical decision-support system and must not replace licensed medical advice.
+
+## Project Structure (short)
+
+```text
+MedGuard-clean/
+├─ README.md
+├─ CHECKPOINTS.md
+└─ backend/
+   ├─ main.py
+   ├─ requirements-llm.txt
+   └─ app/
+      ├─ api/
+      │  ├─ routes.py
+      │  └─ assistant_routes.py
+      ├─ models/
+      │  ├─ medguard_model.py
+      │  ├─ trainer.py
+      │  └─ checkpoints/
+      ├─ data/
+      │  ├─ preprocessor.py
+      │  ├─ drugbank_processor.py
+      │  ├─ entity_linker.py
+      │  ├─ lipinski_processor.py
+      │  └─ ddinter_code_*.csv
+      ├─ knowledge_graph/
+      │  ├─ graph_builder.py
+      │  └─ kg_builder_full.py
+      └─ static/
+         └─ demo.html
+```
 
 Repository: [MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
 
