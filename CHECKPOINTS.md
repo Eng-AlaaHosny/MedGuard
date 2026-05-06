@@ -1,4 +1,5 @@
 ﻿# Checkpoint Files (Google Drive)
+https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
 
 Model checkpoint files are intentionally excluded from this repository.
 

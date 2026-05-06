@@ -18,7 +18,7 @@ MedGuard predicts:
 - DDI interaction type (interaction head)
 - DDI severity (severity head)
 
-## Model Architecture (Short Version)
+## Model Architecture 
 
 - Backbone: `emilyalsentzer/Bio_ClinicalBERT`
 - Heads:
@@ -49,7 +49,7 @@ MedGuard predicts:
 - Uses Balanced Softmax for long-tail labels.
 - Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
-## Training Defaults (from current code)
+## Training Defaults ( current status)
 
 - Stage 1 defaults:
   - epochs: 5
@@ -69,7 +69,7 @@ MedGuard predicts:
   - gradient accumulation: 4
   - val split: 0.15
 
-## Runtime Checkpoint Policy (matches code)
+## Runtime Checkpoint Policy (current)
 
 From `backend/main.py`:
 
@@ -81,7 +81,7 @@ From `backend/main.py`:
   - if missing, interaction falls back to main model
 - `stage1_ner_best.pt` is training-only (used to initialize Stage 2 training).
 
-## Inference Behavior (important)
+## Inference Behavior 
 
 - Main endpoint takes explicit drug names: `drug_a`, `drug_b`.
 - Optional text can be provided (`text` field).
@@ -141,6 +141,8 @@ Results:
 - Stage 3 DDInter coverage: **795 / 3411 = 23.31%**
 - Stage 3 skipped class mentions: **539**
 - Linking snapshot run id: `854063fe93f2b781`
+
+checkpoints files : https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
 
 Note on focal loss:
 
@@ -230,7 +232,7 @@ Base prefix: `/api`
   - What we did: focused on pipeline correctness, endpoint health checks, and reproducible training/inference behavior first.
   - Why this limitation remains: comprehensive unit/integration test suite is planned as the next engineering hardening step.
 
-### Data Split Note (for academic review)
+### Data Split Note 
 
 - Current runs used sentence-level train/validation split while building and stabilizing the full pipeline.
 - This can overestimate validation when related pairs appear across splits.
@@ -271,10 +273,10 @@ Assistant setup:
 
 ## Safety Note
 
-This project is for academic/research demonstration.  
+This project is for academic/research demonstration ONLY
 It is not a clinical decision-support system and must not replace licensed medical advice.
 
-## Project Structure (short)
+## Project Structure 
 
 ```text
 MedGuard-clean/
