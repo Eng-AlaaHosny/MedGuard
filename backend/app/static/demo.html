@@ -666,9 +666,17 @@ const MEDICATIONS = [
   { name:'Cyclosporine',   cat:'Immunosuppressant',color:'#64748b' },
   { name:'Tacrolimus',     cat:'Immunosuppressant',color:'#64748b' },
 ];
-const API_BASE = (location.protocol === 'file:' || !location.hostname)
-  ? 'http://localhost:8000'
-  : '';          // same-origin when served by FastAPI
+const API_BASE = (() => {
+  const raw = new URLSearchParams(location.search).get('api');
+  if (raw) {
+    try {
+      const u = new URL(raw);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return u.origin;
+    } catch (_) { /* ignore invalid api URL */ }
+  }
+  if (location.protocol === 'file:' || !location.hostname) return 'http://localhost:8000';
+  return ''; // same-origin when served by FastAPI
+})();
 let selectedDrugs = [];
 const QUICK_DRUGS = [
   'Warfarin','Aspirin','Metoprolol','Amiodarone','Digoxin','Fluoxetine',
@@ -841,7 +849,7 @@ async function analyze() {
     }
 
   } catch (err) {
-    showError(`Could not reach the MedGuard API at <strong>${API_BASE}/api/analyze</strong>.<br>Make sure FastAPI is running: <code>uvicorn main:app --reload</code> (port 8000).`);
+    showError(`Could not reach the MedGuard API at <strong>${API_BASE || '(same origin)'}/api/analyze</strong>.<br>From <code>backend/</code> run <code>python main.py</code> and open the URL it prints (default port 8000; may use 8001+ if 8000 is busy).<br>If you opened this file via <code>file://</code> and the API is not on 8000, add <code>?api=http://127.0.0.1:YOUR_PORT</code> to this page's URL.`);
   } finally {
     btn.classList.remove('loading');
     btn.disabled = selectedDrugs.length < 2;

@@ -1,5 +1,6 @@
 # this file starts the api server, loads models and data, and connects all routes
 import os
+import socket
 import sys
 import torch
 from contextlib import asynccontextmanager
@@ -26,6 +27,30 @@ LIPINSKI_PATH = os.path.join(DATA_DIR, 'DB_compounds_lipinski.csv')
 CHECKPOINT_CANDIDATES = [os.path.join(MODELS_DIR, 'stage3_severity_best.pt'), os.path.join(MODELS_DIR, 'best_model_3heads.pt')]
 INTERACTION_CHECKPOINT_PATH = os.path.join(MODELS_DIR, 'stage2_interaction_best.pt')
 MODEL_NAME = 'emilyalsentzer/Bio_ClinicalBERT'
+LISTEN_HOST = '0.0.0.0'
+
+
+def pick_listen_port(host: str = LISTEN_HOST, start: int = 8000, span: int = 10) -> int:
+    """Choose a TCP port for uvicorn. Honors PORT env; otherwise first free port in range."""
+    env = os.environ.get('PORT')
+    candidates = [int(env)] if env is not None else list(range(start, start + span))
+    for port in candidates:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, port))
+            except OSError as exc:
+                if env is not None:
+                    raise RuntimeError(
+                        f'PORT={port} is already in use (another server or stale python.exe). '
+                        f'Stop that process, unset PORT, or set PORT to a free port. Original error: {exc}'
+                    ) from exc
+                continue
+        return port
+    raise RuntimeError(
+        f'No free TCP port on {host} in range {start}-{start + span - 1}. '
+        'Stop whatever is using those ports or set PORT to a free port.'
+    )
 
 @asynccontextmanager
 # this async function is used to handle lifespan
@@ -111,9 +136,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         print(f'      WARNING: Lipinski load failed ({exc}).')
         routes_module.lipinski = None
+    listen_port = int(os.environ.get('MEDGUARD_LISTEN_PORT', '8000'))
     print('\n' + '=' * 60)
     print('MedGuard startup complete - API is ready.')
-    print('http://127.0.0.1:8000')
+    print(f'http://127.0.0.1:{listen_port}')
+    if listen_port != 8000:
+        print(
+            f'Note: serving on port {listen_port} — open the URL above for the demo. '
+            f'If you use demo.html from disk, add ?api=http://127.0.0.1:{listen_port} or serve this app from /.'
+        )
     print('=' * 60 + '\n')
     yield
     print('MedGuard shutting down.')
@@ -139,4 +170,6 @@ else:
         return {'message': f'static/ not found - expected: {STATIC_DIR}', 'docs': '/docs', 'health': '/api/health'}
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run('main:app', host='0.0.0.0', port=8000, reload=False)
+    port = pick_listen_port()
+    os.environ['MEDGUARD_LISTEN_PORT'] = str(port)
+    uvicorn.run('main:app', host=LISTEN_HOST, port=port, reload=False)

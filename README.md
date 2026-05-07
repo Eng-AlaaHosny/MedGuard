@@ -8,7 +8,7 @@ This file explains what I built, how I trained it, and what the current results 
 - Stage 3 uses **DDInter curated severity labels** (not DrugBank keyword labels).
 - Entity linking uses a deterministic 3-layer resolver.
 - Stage 3 uses **Balanced Softmax** to handle class imbalance.
-- Runtime uses Stage 3 as the main model and Stage 2 as a dedicated interaction model.
+- At inference, **severity** comes from the **main** model (Stage 3 weights when loaded); **interaction type** uses the **Stage 2** checkpoint when `stage2_interaction_best.pt` is present, otherwise the main model handles both heads (`routes.py`).
 
 ## Project Goal
 
@@ -51,21 +51,29 @@ MedGuard predicts:
 
 ## Artifact Availability (Important)
 
-The repository intentionally excludes large runtime/training artifacts.  
-If these files are missing locally, training/inference will run with fallbacks or fail where the artifact is required.
+Root `.gitignore` excludes large binaries and dumps (for example `*.pt`, `*.pkl`, `*.db`, `*.xml`), so **checkpoints, DrugBank XML/SQLite, and serialized graphs are not part of git**. If something is missing locally, training may fail or the API will use fallbacks (see `backend/main.py`: demo KG if `knowledge_graph.pkl` is absent; pretrained-only weights if checkpoints are absent).
 
-- Usually external or generated artifacts:
-  - `backend/app/models/checkpoints/*.pt`
-  - `backend/app/data/drugbank.db`
-  - `backend/app/data/knowledge_graph.pkl`
-  - `backend/app/data/kg_embeddings.pkl`
-  - `backend/app/data/linking_snapshots.sqlite` (created after Stage 3/linking runs)
-- Committed in this repo:
-  - `backend/app/data/DDICorpus/**`
-  - `backend/app/data/ddinter_code_*.csv`
-  - `backend/app/data/DB_compounds_lipinski.csv`
+**You must obtain or generate locally**
 
-## Training Defaults ( current status)
+| Path | Role |
+|------|------|
+| `backend/app/data/DDICorpus/` | **DDI Extraction challenge XML corpus** — expected layout: `Train/…/*.xml` and `Test/Test for DDI Extraction task/…/*.xml` (see `app/data/preprocessor.py`). Not shipped in this repo; required for `trainer.py`. |
+| `backend/app/data/drugbank_full.xml/full database.xml` | DrugBank **full** XML (license from DrugBank). Required to run `python -m app.data.drugbank_processor` → writes `drugbank.db`. |
+| `backend/app/models/checkpoints/*.pt` | Stage weights — download from Drive (see [Checkpoints](#checkpoints-google-drive)) into `backend/app/models/checkpoints/`. |
+| `backend/app/data/drugbank.db` | Built by `drugbank_processor`. Used at inference for synonym → KG resolution when the DB exists (`routes.py`). |
+| `backend/app/data/knowledge_graph.pkl` | Full KG pickle (**graph + `embeddings` dict + name/id maps**). Built by `kg_builder_full.py` (`DrugKnowledgeGraph.save`). **Training stages 2–3 read this path** via `trainer.load_kg_embeddings`. Runtime loads it in `main.py`; if missing, server uses a **small built-in demo graph**. |
+| `backend/app/data/kg_embeddings.pkl` | Written by `compute_embeddings` as a **standalone embedding dict** during KG build. The trainer does **not** load this file; embeddings used in training come from **`knowledge_graph.pkl`** after a full build. |
+| `backend/app/data/linking_snapshots.sqlite` | Written during Stage 3 linking / linker runs (`entity_linker.py`); documents DDInter linking decisions. |
+
+**Shipped as source/data files in this repo (typical)**
+
+- `backend/app/data/ddinter_code_{A,B,D,H,L,P,R,V}.csv` — DDInter tables used for severity supervision / vocabulary.
+- `backend/app/data/DB_compounds_lipinski.csv` — Lipinski-style descriptors for DrugBank IDs (used by `lipinski_processor.py`).
+- All Python modules under `backend/app/` and `backend/main.py`, plus `backend/app/static/demo.html`.
+
+## Training Defaults (match `trainer.py`)
+
+CLI overrides: `python -m app.models.trainer` accepts `--epochs1`, `--epochs2`, `--epochs3`, and `--model` (default backbone name matches `medguard_model.py`).
 
 - Stage 1 defaults:
   - epochs: 5
@@ -101,14 +109,16 @@ From `backend/main.py`:
 
 - Main endpoint takes explicit drug names: `drug_a`, `drug_b`.
 - Optional text can be provided (`text` field).
-- If text is empty, backend creates a short template sentence for inference.
+- If text is empty, backend builds a short template sentence (`routes.run_pair_inference`).
 - No training-corpus sentence substitution is used at inference.
+- **Which checkpoint does what** (`routes.py`): **interaction type** logits come from `interaction_model` when `stage2_interaction_best.pt` loaded; otherwise the main model is used for both heads. **Severity** logits always come from the **main** model (Stage 3 checkpoint when present).
+- NER entities are decoded from the main model’s `ner_logits` on the inference text.
 
 ## Data Used
 
 - DDI Corpus (XML)
   - What it is: the main NLP dataset with sentences, drug entities, and DDI relation labels.
-  - Used for: Stage 1 NER training and Stage 2 interaction-type training.
+  - Used for: Stage 1 NER and Stage 2 interaction-type training; Stage 3 uses the same corpus sentences with DDInter-linked severity labels.
 
 - DrugBank XML (`full database.xml`)
   - What it is: structured drug knowledge source (drugs, descriptions, interactions, synonyms).
@@ -123,8 +133,8 @@ From `backend/main.py`:
   - Used for: Stage 3 severity labels after name linking to DDInter vocabulary.
 
 - KG file (`knowledge_graph.pkl`)
-  - What it is: prebuilt drug knowledge graph + node embeddings mapping.
-  - Used for: KG feature vectors and known-interaction context at inference.
+  - What it is: serialized graph, DrugBank-derived interaction edges, **node2vec embeddings**, and name/id maps (`DrugKnowledgeGraph.save` format).
+  - Used for: KG feature vectors during training (via `trainer.load_kg_embeddings`) and known-interaction context at inference (`routes.build_kg_context`).
 
 - Lipinski file (`DB_compounds_lipinski.csv`)
   - What it is: physicochemical descriptors per DrugBank compound (MW, HBA, HBD, logP, Ro5).
@@ -132,16 +142,21 @@ From `backend/main.py`:
 
 ## Data / Build Pipeline
 
-1. Put DrugBank XML at:
+1. Obtain **DDI Corpus** XML and place under `backend/app/data/DDICorpus/` with the folder layout expected by `preprocessor.load_ddi_corpus` (`Train/`, `Test/Test for DDI Extraction task/`).
+2. Put DrugBank XML at:
    - `backend/app/data/drugbank_full.xml/full database.xml`
-2. Parse DrugBank XML and build SQLite DB:
+3. Parse DrugBank XML and build SQLite DB:
    - `python -m app.data.drugbank_processor`
    - Produces `backend/app/data/drugbank.db`
-3. Build KG (if needed):
-   - `python -m app.knowledge_graph.kg_builder_full`
-   - Produces `knowledge_graph.pkl` and `kg_embeddings.pkl`
-4. Keep DDInter CSV files in `backend/app/data/` as `ddinter_code_*.csv`
-5. Run training stages
+4. Build KG (recommended before stages 2–3):
+
+```bash
+python -m app.knowledge_graph.kg_builder_full
+```
+
+Produces **`backend/app/data/knowledge_graph.pkl`** (graph + node2vec embeddings + maps) and **`backend/app/data/kg_embeddings.pkl`** (standalone embedding dict — auxiliary; trainer uses `knowledge_graph.pkl`).
+5. Keep DDInter CSV files in `backend/app/data/` (`ddinter_code_*.csv`; this repo includes `A,B,D,H,L,P,R,V`).
+6. Run training stages. Stages 2–3 load KG vectors via **`knowledge_graph.pkl`** (`trainer.py`: `kg_path = …/knowledge_graph.pkl` → `load_kg_embeddings`). If that file is missing, training continues with **zero** KG vectors (see trainer warnings).
 
 ## Latest Training Results
 
@@ -164,8 +179,6 @@ Note:
 - These values are from the referenced training run and are not auto-updated from code.
 - Re-running training can produce different numbers depending on data/artifact state and environment.
 
-checkpoints files : https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
-
 Note on focal loss:
 
 - A focal-loss test was done earlier outside the current committed trainer path.
@@ -173,16 +186,35 @@ Note on focal loss:
 
 ## How To Run
 
-From `backend/`:
+### Python environment
+
+There is **no** pinned `requirements.txt` for the core stack in this repo (only `backend/requirements-llm.txt` for the optional Anthropic assistant). Create a virtualenv and install dependencies implied by the imports, for example:
 
 ```bash
+pip install torch transformers fastapi uvicorn[standard] pydantic numpy pandas scikit-learn networkx node2vec
+```
+
+Versions should match a working PyTorch + CUDA/CPU setup on your machine. Hugging Face will download `emilyalsentzer/Bio_ClinicalBERT` on first run.
+
+### Training and API (from `backend/`)
+
+PowerShell:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
-python -m app.data.drugbank_processor
-python -m app.models.trainer --stage all
+```
+
+Then only when paths exist:
+
+```bash
+python -m app.data.drugbank_processor   # needs DrugBank XML at path expected in drugbank_processor.py
+python -m app.models.trainer --stage all   # needs DDICorpus/, ddinter CSVs, kg embeddings as required by trainer
 python main.py
 ```
 
-Before running, confirm required data/artifacts are present (or generate/download them via the pipeline above).
+For a **demo without retraining**, place checkpoints from [Checkpoints](#checkpoints-google-drive), keep `DB_compounds_lipinski.csv`, and run `python main.py` — KG will fall back to the built-in demo graph if `knowledge_graph.pkl` is missing.
+
+Before running, confirm required data/artifacts are present (see [Artifact Availability](#artifact-availability-important)).
 
 Optional stage-by-stage training:
 
@@ -200,8 +232,11 @@ python -m app.models.trainer --stage 3
 python main.py
 ```
 
+The console prints the exact URL. By default the server uses port **8000**; if that port is already taken (common if an old `python.exe` is still running), `python main.py` picks the next free port in **8000–8009**. To force a port, set **`PORT`** before starting (PowerShell: `$env:PORT=8010; python main.py`).
+
 2. Open in browser:
-   - `http://127.0.0.1:8000`
+   - Prefer: **`http://127.0.0.1:<port>/`** (same origin as the API — works for any chosen port).
+   - If you open `demo.html` from disk (`file://`), it defaults to **`http://localhost:8000`** for API calls. If the server is on another port, either open the URL above or add a query parameter, e.g. `demo.html?api=http://127.0.0.1:8001`.
 
 3. Use the page:
    - Add 2+ drugs and click **Analyze Interactions**
@@ -209,26 +244,19 @@ python main.py
 
 ## API Endpoints
 
-Base prefix: `/api`
+Mounted in `backend/main.py`: routers use prefix **`/api`**. FastAPI docs: **`/docs`** when the server is running.
 
-- `POST /api/analyze`
-  - Request body:
-    - `drug_a` (string, required)
-    - `drug_b` (string, required)
-    - `text` (string, optional)
-  - Returns:
-    - predicted interaction type + confidence
-    - predicted severity + confidence
-    - detected entities
-    - KG context
-    - Lipinski context
-    - modality coverage flags
+- **`POST /api/analyze`** — defined in `app/api/routes.py` (`DDIResponse`)
+  - Body (`DDIRequest`): `drug_a`, `drug_b` (required); `text` (optional).
+  - Response highlights: `inference_text`, `detected_entities` (NER spans), `interaction_type` / `interaction_type_idx` / `interaction_source`, `severity_label` / `severity_level` / `severity_color` / `severity_source`, `interaction_reason`, `evidence_text` / `evidence_source`, `plain_guidance`, `kg_context`, `lipinski_context`, `confidence` (per-class probs for interaction + severity), `modality_coverage` (whether KG/Lipinski/token spans were available per drug).
 
-- `GET /api/health`
-  - Quick status of model/tokenizer/KG/Lipinski loading and assistant key config
+- **`GET /api/health`** — loading flags for main model, Stage 2 interaction model, tokenizer, KG, Lipinski, and whether `ANTHROPIC_API_KEY` is set.
 
-- `GET /api/drugs?limit=50`
-  - Sample of drug names currently available in KG
+- **`GET /api/drugs?limit=50`** — sample drug names from the loaded KG (`limit` optional).
+
+Assistant endpoints (optional): **`GET /api/assistant/status`**, **`POST /api/assistant/chat`** — see [Demo + Assistant Layer](#demo--assistant-layer).
+
+Static: **`/`** serves `backend/app/static/demo.html`; assets under **`/static/`** (see `main.py`).
 
 ## Known Limitations (currently)
 
@@ -252,9 +280,9 @@ Base prefix: `/api`
   - What we did: return full class probability vectors for transparency instead of only top labels.
   - Why this limitation remains: calibration study was out of current project time scope.
 
-- Automated tests are currently lightweight.
-  - What we did: focused on pipeline correctness, endpoint health checks, and reproducible training/inference behavior first.
-  - Why this limitation remains: comprehensive unit/integration test suite is planned as the next engineering hardening step.
+- There is **no** automated test suite in this repository (`pytest`/CI-style tests are absent).
+  - What we did: focused on pipeline correctness, manual health checks (`/api/health`), and reproducible training/inference behavior first.
+  - Why this limitation remains: comprehensive unit/integration tests were out of scope for the current submission.
 
 ### Data Split Note 
 
@@ -280,26 +308,23 @@ Assistant setup:
 
 - Install: `pip install -r backend/requirements-llm.txt`
 - Set env var: `ANTHROPIC_API_KEY`
-- Optional env var: `ANTHROPIC_MODEL` (if not set, backend uses the default configured in `backend/app/api/assistant_routes.py`; check that file for the latest value)
+- Optional env var: `ANTHROPIC_MODEL` — if unset, `assistant_routes.py` defaults to **`claude-3-5-haiku-20241022`** (see `DEFAULT_ANTHROPIC_MODEL` in that file).
 - Endpoints:
   - `GET /api/assistant/status`
   - `POST /api/assistant/chat`
 
-## Checkpoint 
-https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
+## Checkpoints (Google Drive)
 
-- Large model/data artifacts are intentionally excluded from git.
-- Required checkpoints are listed in `CHECKPOINTS.md`.
-- Runtime-critical checkpoints are:
-  - `stage3_severity_best.pt`
-  - `stage2_interaction_best.pt`
-- `stage1_ner_best.pt` is needed for stage-wise training workflow.
-- Optional legacy fallback (if present): `best_model_3heads.pt`
+Download folder: [Google Drive — MedGuard checkpoints](https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing)
+
+Same list as `CHECKPOINTS.md`:
+
+- **Training / runtime:** `stage1_ner_best.pt`, `stage2_interaction_best.pt`, `stage3_severity_best.pt` → place under `backend/app/models/checkpoints/` (directory exists; files are gitignored).
+- **Optional legacy:** `best_model_3heads.pt` — loaded only if Stage 3 file missing (`main.py` candidate list).
 
 ## Safety Note
 
-This project is for academic/research demonstration ONLYYY
-It is NOT a clinical decision-support system and must not replace licensed medical advice.
+This project is for **academic and research demonstration only**. It is **not** a clinical decision-support system and must not replace licensed medical advice.
 
 ## Project Structure 
 
@@ -307,26 +332,37 @@ It is NOT a clinical decision-support system and must not replace licensed medic
 MedGuard-clean/
 ├─ README.md
 ├─ CHECKPOINTS.md
+├─ .gitignore
 └─ backend/
-   ├─ main.py
-   ├─ requirements-llm.txt
+   ├─ main.py                 # FastAPI app, lifespan loads models/KG/Lipinski, port selection
+   ├─ requirements-llm.txt    # Optional: anthropic SDK for assistant only
    └─ app/
+      ├─ __init__.py
       ├─ api/
-      │  ├─ routes.py
-      │  └─ assistant_routes.py
+      │  ├─ __init__.py
+      │  ├─ routes.py             # /analyze, /health, /drugs
+      │  └─ assistant_routes.py   # /assistant/* (prefix included in router)
       ├─ models/
-      │  ├─ medguard_model.py
-      │  ├─ trainer.py
-      │  └─ checkpoints/
+      │  ├─ __init__.py
+      │  ├─ medguard_model.py     # MedGuardModel, labels, load_model/load_tokenizer
+      │  ├─ trainer.py            # Stages 1–3, BalancedSoftmax severity loss
+      │  └─ checkpoints/          # .pt files (ignored by git; content from Drive)
       ├─ data/
-      │  ├─ preprocessor.py
-      │  ├─ drugbank_processor.py
-      │  ├─ entity_linker.py
+      │  ├─ preprocessor.py       # DDICorpus XML → sentences
+      │  ├─ drugbank_processor.py # DrugBank XML → drugbank.db
+      │  ├─ entity_linker.py      # DDInter linking + snapshots sqlite
       │  ├─ lipinski_processor.py
-      │  └─ ddinter_code_*.csv
+      │  ├─ kb_normalization.py
+      │  ├─ ddinter_vocabulary.py
+      │  ├─ corpus_inspector.py
+      │  ├─ ddinter_code_{A,B,D,H,L,P,R,V}.csv
+      │  └─ DB_compounds_lipinski.csv
       ├─ knowledge_graph/
-      │  ├─ graph_builder.py
-      │  └─ kg_builder_full.py
+      │  ├─ __init__.py
+      │  ├─ graph_builder.py      # DrugKnowledgeGraph, demo graph
+      │  └─ kg_builder_full.py      # Full KG build script
+      ├─ utils/
+      │  └─ __init__.py
       └─ static/
          └─ demo.html
 ```

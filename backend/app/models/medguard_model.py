@@ -127,9 +127,9 @@ if __name__ == '__main__':
     with torch.no_grad():
         outputs = model(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'], lipinski_feats_a=lipinski_a, lipinski_feats_b=lipinski_b)
     print('\n✅ Model loaded successfully!')
-    print(f'  NER logits shape:         {outputs['ner_logits'].shape}')
-    print(f'  Interaction logits shape: {outputs['interaction_logits'].shape}')
-    print(f'  Severity logits shape:    {outputs['severity_logits'].shape}')
+    print(f"  NER logits shape:         {outputs['ner_logits'].shape}")
+    print(f"  Interaction logits shape: {outputs['interaction_logits'].shape}")
+    print(f"  Severity logits shape:    {outputs['severity_logits'].shape}")
     print(f'\n  NER classes:      {list(NER_LABELS.values())}')
     print(f'  DDI classes:      {list(DDI_LABELS.values())}')
     print(f'  Severity classes: {list(SEVERITY_LABELS.values())}')

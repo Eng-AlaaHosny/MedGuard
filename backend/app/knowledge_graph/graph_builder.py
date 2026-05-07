@@ -132,10 +132,10 @@ if __name__ == '__main__':
     kg = build_demo_graph()
     print('\nTesting drug lookup...')
     embedding = kg.get_drug_embedding('Warfarin')
-    print(f'Warfarin in graph: {kg.check_drug_available('Warfarin')}')
+    print(f"Warfarin in graph: {kg.check_drug_available('Warfarin')}")
     print('\nTesting interaction lookup...')
     info = kg.get_interaction_info('Warfarin', 'Aspirin')
     if info:
-        print(f'Warfarin-Aspirin interaction: severity={info['severity']}')
-        print(f'Description: {info['description']}')
+        print(f"Warfarin-Aspirin interaction: severity={info['severity']}")
+        print(f"Description: {info['description']}")
     print('\nKnowledge Graph working correctly!')

@@ -190,7 +190,7 @@ def build_kg_context(drug_a: str, drug_b: str, graph: Optional[DrugKnowledgeGrap
     result = {'drug_a': drug_a, 'drug_b': drug_b, 'resolved_drug_a': resolved_a, 'resolved_drug_b': resolved_b, 'drug_a_in_graph': a_avail, 'drug_b_in_graph': b_avail}
     if not a_avail or not b_avail:
         missing = [d for d, av in [(drug_a, a_avail), (drug_b, b_avail)] if not av]
-        result['status'] = f'Data Unavailable — {', '.join(missing)} not in KG'
+        result['status'] = f"Data Unavailable - {', '.join(missing)} not in KG"
         result['known_interaction'] = None
         return result
     interaction_info = graph.get_interaction_info(resolved_a, resolved_b)
