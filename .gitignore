@@ -12,5 +12,8 @@ backend/venv/
 .env
 .DS_Store
 *.xml
+.venv/
+**/.venv/
+backend/.venv/
 
 backend/app/models/checkpoints/
