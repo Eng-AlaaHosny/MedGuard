@@ -280,7 +280,7 @@ Assistant setup:
 
 - Install: `pip install -r backend/requirements-llm.txt`
 - Set env var: `ANTHROPIC_API_KEY`
-- Optional env var: `ANTHROPIC_MODEL` (default `claude-3-5-haiku-20241022`)
+- Optional env var: `ANTHROPIC_MODEL` (if not set, backend uses the default configured in `backend/app/api/assistant_routes.py`; check that file for the latest value)
 - Endpoints:
   - `GET /api/assistant/status`
   - `POST /api/assistant/chat`
