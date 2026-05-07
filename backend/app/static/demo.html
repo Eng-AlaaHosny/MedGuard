@@ -1,3 +1,4 @@
+<!-- this page lets users test the api and see model outputs in a simple ui -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -540,13 +541,13 @@
 
 <main>
 
-  <!-- ── Quick-pick medication grid ── -->
+  
   <div class="quick-section">
     <div class="section-label">Common medications — click to add</div>
     <div class="quick-grid" id="quick-grid"></div>
   </div>
 
-  <!-- ── Input card ── -->
+  
   <div class="input-card">
     <div class="section-label" style="margin-bottom:0.5rem">Enter medication names</div>
 
@@ -563,10 +564,10 @@
     </button>
   </div>
 
-  <!-- ── Results ── -->
+  
   <div id="results"></div>
 
-  <!-- ── Anthropic LLM layer (MedGuard as tool) ── -->
+  
   <div class="input-card" style="margin-top:2rem">
     <div class="section-label" style="margin-bottom:0.35rem">LLM assistant (Anthropic)</div>
     <p class="assistant-status" id="assistant-status">Checking configuration…</p>
@@ -598,52 +599,43 @@
 </main>
 
 <script>
-// ── Medication database ──────────────────────────────────────────────────────
 const MEDICATIONS = [
-  // Anticoagulants
   { name:'Warfarin',       cat:'Anticoagulant',    color:'#ef4444' },
   { name:'Heparin',        cat:'Anticoagulant',    color:'#ef4444' },
   { name:'Rivaroxaban',    cat:'Anticoagulant',    color:'#ef4444' },
   { name:'Apixaban',       cat:'Anticoagulant',    color:'#ef4444' },
   { name:'Dabigatran',     cat:'Anticoagulant',    color:'#ef4444' },
   { name:'Enoxaparin',     cat:'Anticoagulant',    color:'#ef4444' },
-  // Antiplatelets / NSAIDs
   { name:'Aspirin',        cat:'NSAID',            color:'#f97316' },
   { name:'Ibuprofen',      cat:'NSAID',            color:'#f97316' },
   { name:'Naproxen',       cat:'NSAID',            color:'#f97316' },
   { name:'Clopidogrel',    cat:'Antiplatelet',     color:'#f97316' },
   { name:'Celecoxib',      cat:'NSAID',            color:'#f97316' },
-  // Statins
   { name:'Atorvastatin',   cat:'Statin',           color:'#8b5cf6' },
   { name:'Simvastatin',    cat:'Statin',           color:'#8b5cf6' },
   { name:'Rosuvastatin',   cat:'Statin',           color:'#8b5cf6' },
   { name:'Pravastatin',    cat:'Statin',           color:'#8b5cf6' },
-  // Antihypertensives
   { name:'Lisinopril',     cat:'ACE Inhibitor',    color:'#0ea5e9' },
   { name:'Enalapril',      cat:'ACE Inhibitor',    color:'#0ea5e9' },
   { name:'Ramipril',       cat:'ACE Inhibitor',    color:'#0ea5e9' },
   { name:'Amlodipine',     cat:'CCB',              color:'#0ea5e9' },
   { name:'Verapamil',      cat:'CCB',              color:'#0ea5e9' },
   { name:'Diltiazem',      cat:'CCB',              color:'#0ea5e9' },
-  // Beta-blockers
   { name:'Metoprolol',     cat:'Beta-blocker',     color:'#06b6d4' },
   { name:'Atenolol',       cat:'Beta-blocker',     color:'#06b6d4' },
   { name:'Carvedilol',     cat:'Beta-blocker',     color:'#06b6d4' },
   { name:'Bisoprolol',     cat:'Beta-blocker',     color:'#06b6d4' },
   { name:'Propranolol',    cat:'Beta-blocker',     color:'#06b6d4' },
-  // Antidiabetics
   { name:'Metformin',      cat:'Antidiabetic',     color:'#10b981' },
   { name:'Glipizide',      cat:'Antidiabetic',     color:'#10b981' },
   { name:'Glibenclamide',  cat:'Antidiabetic',     color:'#10b981' },
   { name:'Insulin',        cat:'Antidiabetic',     color:'#10b981' },
   { name:'Sitagliptin',    cat:'Antidiabetic',     color:'#10b981' },
   { name:'Empagliflozin',  cat:'Antidiabetic',     color:'#10b981' },
-  // Cardiac
   { name:'Digoxin',        cat:'Cardiac',          color:'#ec4899' },
   { name:'Amiodarone',     cat:'Cardiac',          color:'#ec4899' },
   { name:'Quinidine',      cat:'Cardiac',          color:'#ec4899' },
   { name:'Sotalol',        cat:'Cardiac',          color:'#ec4899' },
-  // Antidepressants / CNS
   { name:'Fluoxetine',     cat:'SSRI',             color:'#6366f1' },
   { name:'Sertraline',     cat:'SSRI',             color:'#6366f1' },
   { name:'Paroxetine',     cat:'SSRI',             color:'#6366f1' },
@@ -652,18 +644,15 @@ const MEDICATIONS = [
   { name:'Venlafaxine',    cat:'SNRI',             color:'#6366f1' },
   { name:'Amitriptyline',  cat:'TCA',              color:'#6366f1' },
   { name:'Lithium',        cat:'Mood stabiliser',  color:'#6366f1' },
-  // Antibiotics
   { name:'Ciprofloxacin',  cat:'Antibiotic',       color:'#d97706' },
   { name:'Erythromycin',   cat:'Antibiotic',       color:'#d97706' },
   { name:'Clarithromycin', cat:'Antibiotic',       color:'#d97706' },
   { name:'Amoxicillin',    cat:'Antibiotic',       color:'#d97706' },
   { name:'Doxycycline',    cat:'Antibiotic',       color:'#d97706' },
   { name:'Rifampicin',     cat:'Antibiotic',       color:'#d97706' },
-  // Diuretics
   { name:'Furosemide',     cat:'Diuretic',         color:'#14b8a6' },
   { name:'Hydrochlorothiazide', cat:'Diuretic',    color:'#14b8a6' },
   { name:'Spironolactone', cat:'Diuretic',         color:'#14b8a6' },
-  // Others
   { name:'Phenytoin',      cat:'Anticonvulsant',   color:'#a855f7' },
   { name:'Carbamazepine',  cat:'Anticonvulsant',   color:'#a855f7' },
   { name:'Valproate',      cat:'Anticonvulsant',   color:'#a855f7' },
@@ -677,16 +666,10 @@ const MEDICATIONS = [
   { name:'Cyclosporine',   cat:'Immunosuppressant',color:'#64748b' },
   { name:'Tacrolimus',     cat:'Immunosuppressant',color:'#64748b' },
 ];
-
-// ── API base URL — works whether file:// or served by FastAPI ────────────────
 const API_BASE = (location.protocol === 'file:' || !location.hostname)
   ? 'http://localhost:8000'
   : '';          // same-origin when served by FastAPI
-
-// ── State ────────────────────────────────────────────────────────────────────
 let selectedDrugs = [];
-
-// ── Build quick grid ─────────────────────────────────────────────────────────
 const QUICK_DRUGS = [
   'Warfarin','Aspirin','Metoprolol','Amiodarone','Digoxin','Fluoxetine',
   'Ciprofloxacin','Metformin','Atorvastatin','Lisinopril','Furosemide',
@@ -709,8 +692,6 @@ function buildQuickGrid() {
     grid.appendChild(btn);
   });
 }
-
-// ── Drug tag management ───────────────────────────────────────────────────────
 function addDrug(name) {
   const normalised = name.trim();
   if (!normalised || selectedDrugs.map(d=>d.toLowerCase()).includes(normalised.toLowerCase())) return;
@@ -729,7 +710,6 @@ function removeDrug(name) {
 
 function renderTags() {
   const box = document.getElementById('tags-box');
-  // Remove old tags
   box.querySelectorAll('.drug-tag').forEach(t => t.remove());
   selectedDrugs.forEach(name => {
     const tag = document.createElement('span');
@@ -743,8 +723,6 @@ function updateBtn() {
   const btn = document.getElementById('analyze-btn');
   btn.disabled = selectedDrugs.length < 2;
 }
-
-// ── Autocomplete ──────────────────────────────────────────────────────────────
 let acIdx = -1;
 
 function openAutocomplete(query) {
@@ -809,13 +787,9 @@ document.getElementById('drug-input').addEventListener('keydown', e => {
 document.addEventListener('click', e => {
   if (!e.target.closest('.autocomplete-wrap')) closeAutocomplete();
 });
-
-// ── Tags box click focuses input ──────────────────────────────────────────────
 document.getElementById('tags-box').addEventListener('click', () => {
   document.getElementById('drug-input').focus();
 });
-
-// ── Analyze ───────────────────────────────────────────────────────────────────
 document.getElementById('analyze-btn').addEventListener('click', analyze);
 
 const SEVERITY_RANK = { safe: 0, caution: 1, warning: 2, danger: 3 };
@@ -873,8 +847,6 @@ async function analyze() {
     btn.disabled = selectedDrugs.length < 2;
   }
 }
-
-// ── Render results ────────────────────────────────────────────────────────────
 const SEV_ICONS = { safe:'✅', caution:'⚠️', warning:'🔶', danger:'🚨' };
 const SEVERITY_LABELS_NICE = { safe:'Safe', caution:'Caution', warning:'Warning', danger:'Danger' };
 const DDI_LABELS = {
@@ -901,8 +873,6 @@ function showResults(data, drugs) {
   const detectedHtml = detected.length
     ? detected.map(e => `<span class="detected-drug-tag">${e.text}</span>`).join('')
     : drugs.map(d => `<span class="detected-drug-tag">${d}</span>`).join('');
-
-  // Confidence bars — interaction head
   const intConf = data.confidence?.interaction || {};
   const intBarsHtml = Object.entries(intConf)
     .sort((a,b) => b[1]-a[1])
@@ -914,8 +884,6 @@ function showResults(data, drugs) {
         <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${pct}%"></div></div>
       </div>`;
     }).join('');
-
-  // Severity bars
   const sevConf = data.confidence?.severity || {};
   const sevBarsHtml = Object.entries(sevConf)
     .sort((a,b) => b[1]-a[1])
@@ -926,8 +894,6 @@ function showResults(data, drugs) {
         <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:${pct}%"></div></div>
       </div>`;
     }).join('');
-
-  // KG context
   let kgHtml = '';
   const kg = data.kg_context || {};
   if (kg.known_interaction?.description) {
@@ -943,8 +909,6 @@ function showResults(data, drugs) {
 
   const kgRowsHtml = kgRows.map(([k,v]) => `
     <div class="kv-row"><span class="kv-key">${k}</span><span class="kv-val">${v}</span></div>`).join('');
-
-  // Lipinski
   const lip = data.lipinski_context || {};
   const lipHtml = Object.entries(lip).map(([name, info]) => {
     if (!info.available) return `<div class="kv-row"><span class="kv-key">${name}</span><span class="kv-val" style="color:#94a3b8">Not in dataset</span></div>`;
@@ -959,7 +923,7 @@ function showResults(data, drugs) {
   }).join('') || '<div class="kv-row"><span class="kv-key">Status</span><span class="kv-val">No data</span></div>';
 
   el.innerHTML = `
-    <!-- Severity Banner -->
+    
     <div class="severity-banner ${sev}">
       <div class="sev-icon">${SEV_ICONS[sev] || '💊'}</div>
       <div>
@@ -968,7 +932,7 @@ function showResults(data, drugs) {
       </div>
     </div>
 
-    <!-- Reason box -->
+    
     <div style="background:var(--blue-50);border:1.5px solid var(--blue-200,#bfdbfe);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.25rem;display:flex;gap:.75rem;align-items:flex-start;">
       <span style="font-size:1.2rem;flex-shrink:0">💬</span>
       <div>
@@ -979,7 +943,7 @@ function showResults(data, drugs) {
       </div>
     </div>
 
-    <!-- Row 1: NER + KG -->
+    
     <div class="cards-row">
       <div class="info-card">
         <h3>Named Entity Recognition</h3>
@@ -997,7 +961,7 @@ function showResults(data, drugs) {
       </div>
     </div>
 
-    <!-- Row 2: Model output summary -->
+    
     <div class="cards-row">
       <div class="info-card">
         <h3>Interaction Head Output</h3>
@@ -1032,7 +996,7 @@ function showResults(data, drugs) {
       </div>
     </div>
 
-    <!-- Row 3: Lipinski -->
+    
     <div class="info-card" style="margin-bottom:0">
       <h3>Lipinski Physicochemical Properties</h3>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem 1.5rem">
@@ -1136,11 +1100,7 @@ function showError(msg) {
   el.classList.add('visible');
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-
-// ── Init ──────────────────────────────────────────────────────────────────────
 buildQuickGrid();
-
-// ── Anthropic assistant (/api/assistant/chat) ────────────────────────────────
 let assistantHistory = [];
 
 async function refreshAssistantStatus() {
