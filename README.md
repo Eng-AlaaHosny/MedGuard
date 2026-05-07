@@ -49,6 +49,22 @@ MedGuard predicts:
 - Uses Balanced Softmax for long-tail labels.
 - Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
+## Artifact Availability (Important)
+
+The repository intentionally excludes large runtime/training artifacts.  
+If these files are missing locally, training/inference will run with fallbacks or fail where the artifact is required.
+
+- Usually external or generated artifacts:
+  - `backend/app/models/checkpoints/*.pt`
+  - `backend/app/data/drugbank.db`
+  - `backend/app/data/knowledge_graph.pkl`
+  - `backend/app/data/kg_embeddings.pkl`
+  - `backend/app/data/linking_snapshots.sqlite` (created after Stage 3/linking runs)
+- Committed in this repo:
+  - `backend/app/data/DDICorpus/**`
+  - `backend/app/data/ddinter_code_*.csv`
+  - `backend/app/data/DB_compounds_lipinski.csv`
+
 ## Training Defaults ( current status)
 
 - Stage 1 defaults:
@@ -116,14 +132,16 @@ From `backend/main.py`:
 
 ## Data / Build Pipeline
 
-1. Parse DrugBank XML and build SQLite DB:
+1. Put DrugBank XML at:
+   - `backend/app/data/drugbank_full.xml/full database.xml`
+2. Parse DrugBank XML and build SQLite DB:
    - `python -m app.data.drugbank_processor`
    - Produces `backend/app/data/drugbank.db`
-2. Build KG (if needed):
+3. Build KG (if needed):
    - `python -m app.knowledge_graph.kg_builder_full`
    - Produces `knowledge_graph.pkl` and `kg_embeddings.pkl`
-3. Keep DDInter CSV files in `backend/app/data/` as `ddinter_code_*.csv`
-4. Run training stages
+4. Keep DDInter CSV files in `backend/app/data/` as `ddinter_code_*.csv`
+5. Run training stages
 
 ## Latest Training Results
 
@@ -142,6 +160,10 @@ Results:
 - Stage 3 skipped class mentions: **539**
 - Linking snapshot run id: `854063fe93f2b781`
 
+Note:
+- These values are from the referenced training run and are not auto-updated from code.
+- Re-running training can produce different numbers depending on data/artifact state and environment.
+
 checkpoints files : https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
 
 Note on focal loss:
@@ -159,6 +181,8 @@ python -m app.data.drugbank_processor
 python -m app.models.trainer --stage all
 python main.py
 ```
+
+Before running, confirm required data/artifacts are present (or generate/download them via the pipeline above).
 
 Optional stage-by-stage training:
 
@@ -261,7 +285,8 @@ Assistant setup:
   - `GET /api/assistant/status`
   - `POST /api/assistant/chat`
 
-## Checkpoint / Artifact Policy
+## Checkpoint 
+https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing
 
 - Large model/data artifacts are intentionally excluded from git.
 - Required checkpoints are listed in `CHECKPOINTS.md`.
