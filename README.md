@@ -230,7 +230,7 @@ Base prefix: `/api`
 - `GET /api/drugs?limit=50`
   - Sample of drug names currently available in KG
 
-## Known Limitations
+## Known Limitations (currently)
 
 - Stage 3 severity is trained only on pairs that can be linked to DDInter.
   - What we did: built a deterministic 3-layer linker (DrugBank synonyms + DDInter vocabulary + passthrough), logged run-level linking snapshots, and reported coverage in training output.
@@ -298,8 +298,8 @@ https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sha
 
 ## Safety Note
 
-This project is for academic/research demonstration ONLY
-It is not a clinical decision-support system and must not replace licensed medical advice.
+This project is for academic/research demonstration ONLYYY
+It is NOT a clinical decision-support system and must not replace licensed medical advice.
 
 ## Project Structure 
 
