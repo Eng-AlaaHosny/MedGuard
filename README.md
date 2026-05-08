@@ -208,7 +208,7 @@ Mounted in `backend/main.py`: routers use prefix **`/api`**. FastAPI docs: **`/d
 
 - **`GET /api/drugs?limit=50`** — sample drug names from the loaded KG (`limit` optional).
 
-Assistant endpoints (optional): **`GET /api/assistant/status`**, **`POST /api/assistant/chat`** — see [Demo + Assistant Layer](#demo--assistant-layer).
+Assistant endpoints (optional): **`GET /api/assistant/status`**, **`POST /api/assistant/chat`** 
 
 Static: **`/`** serves `backend/app/static/demo.html`; assets under **`/static/`** (see `main.py`).
 
@@ -253,7 +253,7 @@ Download folder: [Google Drive — MedGuard checkpoints](https://drive.google.co
 
 Same list as `CHECKPOINTS.md`:
 
-- **Training / runtime:** `stage1_ner_best.pt`, `stage2_interaction_best.pt`, `stage3_severity_best.pt` → place under `backend/app/models/checkpoints/` (directory exists; files are gitignored).
+- **Training / runtime:** `stage1_ner_best.pt`, `stage2_interaction_best.pt`, `stage3_severity_best.pt` → place under `backend/app/models/checkpoints/` 
 
 
 ## Safety Note
