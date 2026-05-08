@@ -184,13 +184,6 @@ For a **demo without retraining**, place checkpoints from [Checkpoints](#checkpo
 
 Retraining from raw corpora needs extra data not shipped with `git clone` 
 
-Optional stage-by-stage training:
-
-```bash
-python -m app.models.trainer --stage 1
-python -m app.models.trainer --stage 2
-python -m app.models.trainer --stage 3
-```
 
 ### Run Demo (Web UI)
 
