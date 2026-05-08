@@ -49,13 +49,6 @@ MedGuard predicts:
 - Uses Balanced Softmax for long-tail labels.
 - Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
-## What's not on GitHub
-
-`pip install -r requirements.txt` installs **Python packages only**. It does **not** download model weights or raw corpora.
-
-**To run the inference demo (typical grader path):** install deps, copy the `.pt` checkpoints from [Google Drive](#checkpoints-google-drive) into `backend/app/models/checkpoints/`, then run `python main.py` from `backend/`. Small CSVs (DDInter tables, Lipinski) are already in `backend/app/data/`. Full `drugbank.db` / `knowledge_graph.pkl` improve synonym and KG context but are optional — `main.py` falls back to a demo graph and other defaults when those files are absent.
-
-**To retrain from scratch:** you need the official **DDI Corpus** XML (training layout under `backend/app/data/DDICorpus/`) and **DrugBank** full XML (license required) to build `drugbank.db` and the knowledge graph. Those are large/licensed and are intentionally omitted from git — same reason only checkpoints live on Drive, not DrugBank dumps.
 
 ## Training Defaults (match `trainer.py`)
 
