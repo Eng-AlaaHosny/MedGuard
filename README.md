@@ -50,7 +50,7 @@ MedGuard predicts:
 - Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
 
-## Training Defaults (match `trainer.py`)
+## Training Defaults (current)
 
 CLI overrides: `python -m app.models.trainer` accepts `--epochs1`, `--epochs2`, `--epochs3`, and `--model` (default backbone name matches `medguard_model.py`).
 
@@ -72,7 +72,7 @@ CLI overrides: `python -m app.models.trainer` accepts `--epochs1`, `--epochs2`, 
   - gradient accumulation: 4
   - val split: 0.15
 
-## Runtime Checkpoint Policy (current)
+## Runtime Checkpoint Policy 
 
 From `backend/main.py`:
 
@@ -165,9 +165,7 @@ Note on focal loss:
 
 ## How To Run
 
-### Python environment
 
-Core dependencies are listed in **`backend/requirements.txt`** (version pins are intentionally loose so you can match CPU/CUDA). Optional Anthropic assistant packages are in **`backend/requirements-llm.txt`**.
 
 ### Windows setup (quick)
 
@@ -180,34 +178,11 @@ py -3.11 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-If `Activate.ps1` is blocked by execution policy, run once (current user only):  
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
-### Linux / macOS
-
-Create any Python 3.10+ virtualenv, `cd backend`, then `python -m pip install -r requirements.txt`.
-
-For **GPU PyTorch** on any OS, install `torch`/`torchvision` using the official [PyTorch “Get Started”](https://pytorch.org/get-started/locally/) commands for your CUDA version, then install the rest from `requirements.txt` (or omit `torch` there if you installed it separately). Hugging Face will download `emilyalsentzer/Bio_ClinicalBERT` on first run.
-
-### Training and API (from `backend/`)
-
-PowerShell (venv already created — activate if needed):
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-Then only when paths exist:
-
-```bash
-python -m app.data.drugbank_processor   # needs DrugBank XML at path expected in drugbank_processor.py
-python -m app.models.trainer --stage all   # needs DDICorpus/, ddinter CSVs, kg embeddings as required by trainer
-python main.py
-```
 
 For a **demo without retraining**, place checkpoints from [Checkpoints](#checkpoints-google-drive), keep `DB_compounds_lipinski.csv`, and run `python main.py` — KG will fall back to the built-in demo graph if `knowledge_graph.pkl` is missing.
 
-Retraining from raw corpora needs extra data not shipped with `git clone` — see [What's not on GitHub](#whats-not-on-github).
+Retraining from raw corpora needs extra data not shipped with `git clone` 
 
 Optional stage-by-stage training:
 
@@ -225,13 +200,6 @@ python -m app.models.trainer --stage 3
 python main.py
 ```
 
-The console prints the exact URL. By default the server uses port **8000**; if that port is already taken (common if an old `python.exe` is still running), `python main.py` picks the next free port in **8000–8009**. To force a port, set **`PORT`** before starting (PowerShell: `$env:PORT=8010; python main.py`).
-
-2. Open in browser:
-   - Prefer: **`http://127.0.0.1:<port>/`** (same origin as the API — works for any chosen port).
-   - If you open `demo.html` from disk (`file://`), it defaults to **`http://localhost:8000`** for API calls. If the server is on another port, either open the URL above or add a query parameter, e.g. `demo.html?api=http://127.0.0.1:8001`.
-
-3. Use the page:
    - Add 2+ drugs and click **Analyze Interactions**
    - Optional: use assistant panel after setting `ANTHROPIC_API_KEY`
 
@@ -285,26 +253,6 @@ Static: **`/`** serves `backend/app/static/demo.html`; assets under **`/static/`
 - Why we moved forward with it: the priority was to first complete and validate the full end-to-end system (3-stage training, linker, KG/Lipinski fusion, API, assistant layer) with a consistent protocol.
 - Planned upgrade: retrain with strict pair-level or document-level split as the next methodological improvement.
 
-## Reproducibility Notes
-
-- Linking decisions are stored in `backend/app/data/linking_snapshots.sqlite`.
-- Each run has a `run_id` and method tags (`ddinter_surface`, `ddinter_from_drugbank_synonym`, etc.).
-
-## Demo + Assistant Layer
-
-- API app: `backend/main.py`
-- Demo page: `backend/app/static/demo.html`
-- Assistant routes: `backend/app/api/assistant_routes.py`
-- LLM dependency: `backend/requirements-llm.txt`
-
-Assistant setup:
-
-- Install: `pip install -r backend/requirements-llm.txt`
-- Set env var: `ANTHROPIC_API_KEY`
-- Optional env var: `ANTHROPIC_MODEL` — if unset, `assistant_routes.py` defaults to **`claude-3-5-haiku-20241022`** (see `DEFAULT_ANTHROPIC_MODEL` in that file).
-- Endpoints:
-  - `GET /api/assistant/status`
-  - `POST /api/assistant/chat`
 
 ## Checkpoints (Google Drive)
 
@@ -313,7 +261,7 @@ Download folder: [Google Drive — MedGuard checkpoints](https://drive.google.co
 Same list as `CHECKPOINTS.md`:
 
 - **Training / runtime:** `stage1_ner_best.pt`, `stage2_interaction_best.pt`, `stage3_severity_best.pt` → place under `backend/app/models/checkpoints/` (directory exists; files are gitignored).
-- **Optional legacy:** `best_model_3heads.pt` — loaded only if Stage 3 file missing (`main.py` candidate list).
+
 
 ## Safety Note
 
