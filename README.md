@@ -188,17 +188,31 @@ Note on focal loss:
 
 ### Python environment
 
-There is **no** pinned `requirements.txt` for the core stack in this repo (only `backend/requirements-llm.txt` for the optional Anthropic assistant). Create a virtualenv and install dependencies implied by the imports, for example:
+Core dependencies are listed in **`backend/requirements.txt`** (version pins are intentionally loose so you can match CPU/CUDA). Optional Anthropic assistant packages are in **`backend/requirements-llm.txt`**.
 
-```bash
-pip install torch transformers fastapi uvicorn[standard] pydantic numpy pandas scikit-learn networkx node2vec
+### Windows setup (quick)
+
+In **PowerShell**, from the repository root:
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-Versions should match a working PyTorch + CUDA/CPU setup on your machine. Hugging Face will download `emilyalsentzer/Bio_ClinicalBERT` on first run.
+If `Activate.ps1` is blocked by execution policy, run once (current user only):  
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+### Linux / macOS
+
+Create any Python 3.10+ virtualenv, `cd backend`, then `python -m pip install -r requirements.txt`.
+
+For **GPU PyTorch** on any OS, install `torch`/`torchvision` using the official [PyTorch “Get Started”](https://pytorch.org/get-started/locally/) commands for your CUDA version, then install the rest from `requirements.txt` (or omit `torch` there if you installed it separately). Hugging Face will download `emilyalsentzer/Bio_ClinicalBERT` on first run.
 
 ### Training and API (from `backend/`)
 
-PowerShell:
+PowerShell (venv already created — activate if needed):
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -335,6 +349,7 @@ MedGuard-clean/
 ├─ .gitignore
 └─ backend/
    ├─ main.py                 # FastAPI app, lifespan loads models/KG/Lipinski, port selection
+   ├─ requirements.txt       # Core: torch, transformers, fastapi, pandas, etc.
    ├─ requirements-llm.txt    # Optional: anthropic SDK for assistant only
    └─ app/
       ├─ __init__.py
