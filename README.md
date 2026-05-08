@@ -49,27 +49,13 @@ MedGuard predicts:
 - Uses Balanced Softmax for long-tail labels.
 - Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
 
-## Artifact Availability (Important)
+## What's not on GitHub
 
-Root `.gitignore` excludes large binaries and dumps (for example `*.pt`, `*.pkl`, `*.db`, `*.xml`), so **checkpoints, DrugBank XML/SQLite, and serialized graphs are not part of git**. If something is missing locally, training may fail or the API will use fallbacks (see `backend/main.py`: demo KG if `knowledge_graph.pkl` is absent; pretrained-only weights if checkpoints are absent).
+`pip install -r requirements.txt` installs **Python packages only**. It does **not** download model weights or raw corpora.
 
-**You must obtain or generate locally**
+**To run the inference demo (typical grader path):** install deps, copy the `.pt` checkpoints from [Google Drive](#checkpoints-google-drive) into `backend/app/models/checkpoints/`, then run `python main.py` from `backend/`. Small CSVs (DDInter tables, Lipinski) are already in `backend/app/data/`. Full `drugbank.db` / `knowledge_graph.pkl` improve synonym and KG context but are optional — `main.py` falls back to a demo graph and other defaults when those files are absent.
 
-| Path | Role |
-|------|------|
-| `backend/app/data/DDICorpus/` | **DDI Extraction challenge XML corpus** — expected layout: `Train/…/*.xml` and `Test/Test for DDI Extraction task/…/*.xml` (see `app/data/preprocessor.py`). Not shipped in this repo; required for `trainer.py`. |
-| `backend/app/data/drugbank_full.xml/full database.xml` | DrugBank **full** XML (license from DrugBank). Required to run `python -m app.data.drugbank_processor` → writes `drugbank.db`. |
-| `backend/app/models/checkpoints/*.pt` | Stage weights — download from Drive (see [Checkpoints](#checkpoints-google-drive)) into `backend/app/models/checkpoints/`. |
-| `backend/app/data/drugbank.db` | Built by `drugbank_processor`. Used at inference for synonym → KG resolution when the DB exists (`routes.py`). |
-| `backend/app/data/knowledge_graph.pkl` | Full KG pickle (**graph + `embeddings` dict + name/id maps**). Built by `kg_builder_full.py` (`DrugKnowledgeGraph.save`). **Training stages 2–3 read this path** via `trainer.load_kg_embeddings`. Runtime loads it in `main.py`; if missing, server uses a **small built-in demo graph**. |
-| `backend/app/data/kg_embeddings.pkl` | Written by `compute_embeddings` as a **standalone embedding dict** during KG build. The trainer does **not** load this file; embeddings used in training come from **`knowledge_graph.pkl`** after a full build. |
-| `backend/app/data/linking_snapshots.sqlite` | Written during Stage 3 linking / linker runs (`entity_linker.py`); documents DDInter linking decisions. |
-
-**Shipped as source/data files in this repo (typical)**
-
-- `backend/app/data/ddinter_code_{A,B,D,H,L,P,R,V}.csv` — DDInter tables used for severity supervision / vocabulary.
-- `backend/app/data/DB_compounds_lipinski.csv` — Lipinski-style descriptors for DrugBank IDs (used by `lipinski_processor.py`).
-- All Python modules under `backend/app/` and `backend/main.py`, plus `backend/app/static/demo.html`.
+**To retrain from scratch:** you need the official **DDI Corpus** XML (training layout under `backend/app/data/DDICorpus/`) and **DrugBank** full XML (license required) to build `drugbank.db` and the knowledge graph. Those are large/licensed and are intentionally omitted from git — same reason only checkpoints live on Drive, not DrugBank dumps.
 
 ## Training Defaults (match `trainer.py`)
 
@@ -228,7 +214,7 @@ python main.py
 
 For a **demo without retraining**, place checkpoints from [Checkpoints](#checkpoints-google-drive), keep `DB_compounds_lipinski.csv`, and run `python main.py` — KG will fall back to the built-in demo graph if `knowledge_graph.pkl` is missing.
 
-Before running, confirm required data/artifacts are present (see [Artifact Availability](#artifact-availability-important)).
+Retraining from raw corpora needs extra data not shipped with `git clone` — see [What's not on GitHub](#whats-not-on-github).
 
 Optional stage-by-stage training:
 
