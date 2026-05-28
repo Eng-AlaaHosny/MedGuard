@@ -1,306 +1,448 @@
-## MedGuard Project Report
+# MedGuard
 
-This file explains what I built, how I trained it, and what the current results are.
+**Drug–drug interaction (DDI) detection** with a multi-task clinical NLP model, DrugBank knowledge-graph enrichment, Lipinski physicochemical features, and a FastAPI demo with an optional Claude assistant.
 
-## Quick Summary
+| | |
+|---|---|
+| **Course** | SE 4003 — Multidisciplinary Engineering Projects |
+| **Institution** | Muğla Sıtkı Koçman University — Software Engineering |
+| **Semester** | 2025–2026 Spring |
+| **Author** | Alaa Hosny Saber Hassouba (220717702) |
 
-- The model is trained in 3 stages: NER, interaction type, then severity.
-- Stage 3 uses **DDInter curated severity labels** (not DrugBank keyword labels).
-- Entity linking uses a deterministic 3-layer resolver.
-- Stage 3 uses **Balanced Softmax** to handle class imbalance.
-- At inference, **severity** comes from the **main** model (Stage 3 weights when loaded); **interaction type** uses the **Stage 2** checkpoint when `stage2_interaction_best.pt` is present, otherwise the main model handles both heads (`routes.py`).
+> **Safety — read first**  
+> MedGuard is for **academic demonstration only**. It must **not** be used for clinical decision-making. All outputs require verification by a licensed healthcare professional.
 
-## Project Goal
+---
 
-MedGuard predicts:
+## Table of contents
 
-- Drug entities (NER head)
-- DDI interaction type (interaction head)
-- DDI severity (severity head)
+- [Overview](#overview)
+- [Results](#results)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [API reference](#api-reference)
+- [Training from scratch](#training-from-scratch)
+- [Three-stage curriculum](#three-stage-curriculum)
+- [Entity linking](#entity-linking)
+- [Training vs inference](#training-vs-inference)
+- [Project structure](#project-structure)
+- [Data and artefacts](#data-and-artefacts)
+- [Known limitations](#known-limitations)
+- [Documentation](#documentation)
+- [References](#references)
+- [Author](#author)
 
-## Model Architecture 
+---
 
-- Backbone: `emilyalsentzer/Bio_ClinicalBERT`
-- Heads:
-  - NER head (token classification: `O`, `B-DRUG`, `I-DRUG`)
-  - Interaction head (`false`, `mechanism`, `effect`, `advise`, `int`)
-  - Severity head (`safe`, `caution`, `warning`, `danger`)
-- Extra features:
-  - KG embedding per drug (128-dim)
-  - Lipinski features per drug (5 values)
-- Fusion:
-  - For each drug, model fuses BERT span + KG + Lipinski
-  - Then predicts interaction and severity from pair representation
+## Overview
 
-## Training Design
+MedGuard accepts two drug names (and optional clinical context text) and predicts:
 
-### Stage 1 (NER)
-- Trains the NER head for drug entities.
-- Best checkpoint: `backend/app/models/checkpoints/stage1_ner_best.pt`
+| Head | Output | Labels |
+|------|--------|--------|
+| **NER** | Drug mentions in text | `O`, `B-DRUG`, `I-DRUG` |
+| **Interaction type** | DDI linguistic category | `false`, `mechanism`, `effect`, `advise`, `int` |
+| **Severity** | Clinical risk level | `safe`, `caution`, `warning`, `danger` |
 
-### Stage 2 (Interaction)
-- Trains interaction type (`false`, `mechanism`, `effect`, `advise`, `int`).
-- Loss in current code: `CrossEntropyLoss(weight=ddi_w)`.
-- Best checkpoint: `backend/app/models/checkpoints/stage2_interaction_best.pt`
+Each drug is represented by fusing three signals:
 
-### Stage 3 (Severity)
-- Trains severity (`safe`, `caution`, `warning`, `danger`) using DDInter-curated labels.
-- Uses deterministic name linking + coverage reporting.
-- Uses Balanced Softmax for long-tail labels.
-- Best checkpoint: `backend/app/models/checkpoints/stage3_severity_best.pt`
+- **Clinical text** — Bio_ClinicalBERT span pooling (768-d)
+- **Knowledge graph** — DrugBank subgraph + node2vec embeddings (128-d)
+- **Chemistry** — Lipinski descriptors: MW, HBA, HBD, logP, Ro5 (5-d)
 
+Concatenated per drug → **901-d** → `drug_fusion` MLP → 768-d.  
+Pair vector → concat(drug_a, drug_b, CLS) → **2304-d** → `pair_projection` → classification heads.
 
-## Training Defaults (current)
+Training follows a **three-stage curriculum** (NER → interaction → severity) so easier tasks do not dominate gradients. At runtime, **two forward passes** use separate best checkpoints for interaction vs NER/severity.
 
-CLI overrides: `python -m app.models.trainer` accepts `--epochs1`, `--epochs2`, `--epochs3`, and `--model` (default backbone name matches `medguard_model.py`).
+**Deliverables in this repo:** trained-model inference API, browser demo (`demo.html`), offline training pipeline, entity-linking audit log, and optional conversational layer (Anthropic Claude with tool-calling into the same inference function).
 
-- Stage 1 defaults:
-  - epochs: 5
-  - batch size: 16
-  - lr: 2e-5
-  - val split: 0.15
-- Stage 2 defaults:
-  - epochs: 10
-  - batch size: 4
-  - lr: 1e-4
-  - gradient accumulation: 4
-  - val split: 0.15
-- Stage 3 defaults:
-  - epochs: 10
-  - batch size: 4
-  - lr: 1e-4
-  - gradient accumulation: 4
-  - val split: 0.15
+---
 
-## Runtime Checkpoint Policy 
+## Results
 
-From `backend/main.py`:
+All metrics are **macro-F1** on a **15% validation split** (single training run; no test-set tuning).
 
-- Main model checkpoints (priority):
-  1. `backend/app/models/checkpoints/stage3_severity_best.pt`
-  2. `backend/app/models/checkpoints/best_model_3heads.pt` (legacy fallback)
-- Interaction model:
-  - `backend/app/models/checkpoints/stage2_interaction_best.pt`
-  - if missing, interaction falls back to main model
-- `stage1_ner_best.pt` is training-only (used to initialize Stage 2 training).
+| Stage | Task | Macro-F1 | Notes |
+|-------|------|----------|-------|
+| 1 | NER (B-DRUG + I-DRUG only) | **0.9517** | Class `O` excluded from metric |
+| 2 | Interaction type (5-class) | **0.4190** | DDI Corpus linguistic labels |
+| 3 | Severity (4-class) | **0.3602** | Limited by DDInter name coverage |
 
-## Inference Behavior 
+**Stage 3 labelling:** **795 / 3,411** sentence pairs (23.31%) received a resolved DDInter severity label; **539** mentions were skipped as drug-class phrases (`class_routing`). The low severity F1 is primarily a **data-linking constraint**, not a modelling failure in isolation.
 
-- Main endpoint takes explicit drug names: `drug_a`, `drug_b`.
-- Optional text can be provided (`text` field).
-- If text is empty, backend builds a short template sentence (`routes.run_pair_inference`).
-- No training-corpus sentence substitution is used at inference.
-- **Which checkpoint does what** (`routes.py`): **interaction type** logits come from `interaction_model` when `stage2_interaction_best.pt` loaded; otherwise the main model is used for both heads. **Severity** logits always come from the **main** model (Stage 3 checkpoint when present).
-- NER entities are decoded from the main model’s `ner_logits` on the inference text.
+**Checkpoints** (not in git): [Google Drive folder](https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing) — see [CHECKPOINTS.md](CHECKPOINTS.md).
 
-## Data Used
+---
 
-- DDI Corpus (XML)
-  - What it is: the main NLP dataset with sentences, drug entities, and DDI relation labels.
-  - Used for: Stage 1 NER and Stage 2 interaction-type training; Stage 3 uses the same corpus sentences with DDInter-linked severity labels.
+## Architecture
 
-- DrugBank XML (`full database.xml`)
-  - What it is: structured drug knowledge source (drugs, descriptions, interactions, synonyms).
-  - Used for: building local `drugbank.db` and creating KG/linking resources.
-
-- DrugBank SQLite (`drugbank.db`)
-  - What it is: local processed DB built from DrugBank XML.
-  - Used for: fast lookup of synonyms/IDs/interactions during linking and inference context building.
-
-- DDInter CSV files (`ddinter_code_*.csv`)
-  - What it is: curated interaction risk-level tables from DDInter.
-  - Used for: Stage 3 severity labels after name linking to DDInter vocabulary.
-
-- KG file (`knowledge_graph.pkl`)
-  - What it is: serialized graph, DrugBank-derived interaction edges, **node2vec embeddings**, and name/id maps (`DrugKnowledgeGraph.save` format).
-  - Used for: KG feature vectors during training (via `trainer.load_kg_embeddings`) and known-interaction context at inference (`routes.build_kg_context`).
-
-- Lipinski file (`DB_compounds_lipinski.csv`)
-  - What it is: physicochemical descriptors per DrugBank compound (MW, HBA, HBD, logP, Ro5).
-  - Used for: extra numerical features fused with BERT drug representations.
-
-## Data / Build Pipeline
-
-1. Obtain **DDI Corpus** XML and place under `backend/app/data/DDICorpus/` with the folder layout expected by `preprocessor.load_ddi_corpus` (`Train/`, `Test/Test for DDI Extraction task/`).
-2. Put DrugBank XML at:
-   - `backend/app/data/drugbank_full.xml/full database.xml`
-3. Parse DrugBank XML and build SQLite DB:
-   - `python -m app.data.drugbank_processor`
-   - Produces `backend/app/data/drugbank.db`
-4. Build KG (recommended before stages 2–3):
-
-```bash
-python -m app.knowledge_graph.kg_builder_full
+```text
+OFFLINE                          ONLINE
+───────                          ──────
+DDI Corpus ──► preprocessor.py
+DrugBank XML ─► drugbank_processor.py ──► drugbank.db
+              ─► kg_builder_full.py ──► knowledge_graph.pkl
+DDInter CSVs ─► ddinter_vocabulary.py
+Lipinski CSV ─► (shipped in repo)
+              ─► trainer.py ──► stage{1,2,3}_*.pt
+                                        │
+                                        ▼
+                              main.py (FastAPI)
+                              ├── POST /api/analyze  ◄── demo.html
+                              └── POST /api/assistant/chat (optional)
 ```
 
-Produces **`backend/app/data/knowledge_graph.pkl`** (graph + node2vec embeddings + maps) and **`backend/app/data/kg_embeddings.pkl`** (standalone embedding dict — auxiliary; trainer uses `knowledge_graph.pkl`).
-5. Keep DDInter CSV files in `backend/app/data/` (`ddinter_code_*.csv`; this repo includes `A,B,D,H,L,P,R,V`).
-6. Run training stages. Stages 2–3 load KG vectors via **`knowledge_graph.pkl`** (`trainer.py`: `kg_path = …/knowledge_graph.pkl` → `load_kg_embeddings`). If that file is missing, training continues with **zero** KG vectors (see trainer warnings).
+| Component | Details |
+|-----------|---------|
+| **Encoder** | [`emilyalsentzer/Bio_ClinicalBERT`](https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT) (768-d hidden) |
+| **KG** | NetworkX graph from DrugBank interactions; node2vec 128-d (`KG_DIM`) |
+| **Max tokens** | 128 (`MAX_LENGTH`) |
+| **Runtime checkpoints** | `stage3_severity_best.pt` (NER + severity); `stage2_interaction_best.pt` (interaction head) |
 
-## Latest Training Results
+**Diagrams (Mermaid, exportable for slides):** [ARCHITECTURE_GRAPHS_CN.md](ARCHITECTURE_GRAPHS_CN.md)  
+**Presentation / examiner Q&A:** [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md)
 
-Training command:
+---
 
-```bash
-python -m app.models.trainer --stage all
-```
+## Quick start
 
-Results:
+Run the **inference demo** only — no training required if you download checkpoints.
 
-- Stage 1 (NER) best macro-F1: **0.9517**
-- Stage 2 (interaction) best macro-F1: **0.4190**
-- Stage 3 (severity) best macro-F1: **0.3602**
-- Stage 3 DDInter coverage: **795 / 3411 = 23.31%**
-- Stage 3 skipped class mentions: **539**
-- Linking snapshot run id: `854063fe93f2b781`
+### Requirements
 
-Note:
-- These values are from the referenced training run and are not auto-updated from code.
-- Re-running training can produce different numbers depending on data/artifact state and environment.
+- **Python 3.11** recommended (see `backend/requirements.txt`)
+- **~2 GB** disk for checkpoints + dependencies
+- **GPU** optional (CPU inference works, slower)
 
-Note on focal loss:
-
-- A focal-loss test was done earlier outside the current committed trainer path.
-- The current repository keeps CE for Stage 2 and that is the canonical training path.
-
-## How To Run
-
-
-
-### Windows setup (quick)
-
-In **PowerShell**, from the repository root:
+### 1. Clone and install
 
 ```powershell
-cd backend
+git clone https://github.com/Eng-AlaaHosny/MedGuard.git
+cd MedGuard/backend
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-
-
-For a **demo without retraining**, place checkpoints from [Checkpoints](#checkpoints-google-drive), keep `DB_compounds_lipinski.csv`, and run `python main.py` — KG will fall back to the built-in demo graph if `knowledge_graph.pkl` is missing.
-
-Retraining from raw corpora needs extra data not shipped with `git clone` 
-
-
-### Run Demo (Web UI)
-
-1. Start the API:
+Linux / macOS:
 
 ```bash
+git clone https://github.com/Eng-AlaaHosny/MedGuard.git
+cd MedGuard/backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Optional — Claude assistant:**
+
+```bash
+pip install -r requirements-llm.txt
+export ANTHROPIC_API_KEY=your_key_here   # PowerShell: $env:ANTHROPIC_API_KEY="..."
+```
+
+### 2. Download checkpoints
+
+Place these files in `backend/app/models/checkpoints/`:
+
+| File | Runtime role |
+|------|----------------|
+| `stage2_interaction_best.pt` | Interaction-type head |
+| `stage3_severity_best.pt` | NER + severity heads |
+
+`stage1_ner_best.pt` is used only inside the training chain — **not** loaded by the API.
+
+Download: [Google Drive](https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing) · [CHECKPOINTS.md](CHECKPOINTS.md)
+
+### 3. Start the server
+
+```bash
+cd backend
 python main.py
 ```
 
-   - Add 2+ drugs and click **Analyze Interactions**
-   - Optional: use assistant panel after setting `ANTHROPIC_API_KEY`
+- Default URL: `http://127.0.0.1:8000` (scans ports **8000–8009** if busy; override with `PORT`)
+- **Demo UI:** `/` → `demo.html`
+- **Swagger:** `/docs`
+- **Health:** `GET /api/health`
 
-## API Endpoints
+**Notes**
 
-Mounted in `backend/main.py`: routers use prefix **`/api`**. FastAPI docs: **`/docs`** when the server is running.
+- If `knowledge_graph.pkl` is missing, a small **demo graph** is built automatically; predictions are still meaningful with checkpoints + Lipinski CSV.
+- Lipinski CSV (`DB_compounds_lipinski.csv`) is included in the repo.
+- Without checkpoints, the server starts but inference will fail until weights are present.
 
-- **`POST /api/analyze`** — defined in `app/api/routes.py` (`DDIResponse`)
-  - Body (`DDIRequest`): `drug_a`, `drug_b` (required); `text` (optional).
-  - Response highlights: `inference_text`, `detected_entities` (NER spans), `interaction_type` / `interaction_type_idx` / `interaction_source`, `severity_label` / `severity_level` / `severity_color` / `severity_source`, `interaction_reason`, `evidence_text` / `evidence_source`, `plain_guidance`, `kg_context`, `lipinski_context`, `confidence` (per-class probs for interaction + severity), `modality_coverage` (whether KG/Lipinski/token spans were available per drug).
+### Example request
 
-- **`GET /api/health`** — loading flags for main model, Stage 2 interaction model, tokenizer, KG, Lipinski, and whether `ANTHROPIC_API_KEY` is set.
-
-- **`GET /api/drugs?limit=50`** — sample drug names from the loaded KG (`limit` optional).
-
-Assistant endpoints (optional): **`GET /api/assistant/status`**, **`POST /api/assistant/chat`** 
-
-Static: **`/`** serves `backend/app/static/demo.html`; assets under **`/static/`** (see `main.py`).
-
-## Known Limitations (currently)
-
-- Stage 3 severity is trained only on pairs that can be linked to DDInter.
-  - What we did: built a deterministic 3-layer linker (DrugBank synonyms + DDInter vocabulary + passthrough), logged run-level linking snapshots, and reported coverage in training output.
-  - Why this limitation remains: DDInter does not cover all DDI Corpus pairs, and some mentions are too ambiguous to map reliably without adding noisy labels.
-
-- Some corpus entities are drug classes, not specific ingredients.
-  - What we did: added explicit class routing (`class_routing`) so these cases are identified and not force-mapped to wrong ingredient names.
-  - Why this limitation remains: many KBs are ingredient-focused, so class-level mentions are not always directly linkable to pair labels.
-
-- KG coverage is incomplete; missing drugs use zero vectors.
-  - What we did: designed graceful fallback to zero KG/Lipinski vectors and exposed modality coverage flags in API output.
-  - Why this limitation remains: the KG is a practical subgraph for this project scope, not full DrugBank graph coverage at all times.
-
-- `caution` class is still low-support.
-  - What we did: used class-aware losses (weighted CE in Stage 2, Balanced Softmax in Stage 3) and reported class distributions.
-  - Why this limitation remains: real label distribution is long-tail and caution examples are limited.
-
-- Probability calibration is not fully studied yet (no full ECE/Brier analysis in this repo).
-  - What we did: return full class probability vectors for transparency instead of only top labels.
-  - Why this limitation remains: calibration study was out of current project time scope.
-
-- There is **no** automated test suite in this repository (`pytest`/CI-style tests are absent).
-  - What we did: focused on pipeline correctness, manual health checks (`/api/health`), and reproducible training/inference behavior first.
-  - Why this limitation remains: comprehensive unit/integration tests were out of scope for the current submission.
-
-### Data Split Note 
-
-- Current runs used sentence-level train/validation split while building and stabilizing the full pipeline.
-- This can overestimate validation when related pairs appear across splits.
-- Official corpus test evaluation should be treated as more important.
-- Why we moved forward with it: the priority was to first complete and validate the full end-to-end system (3-stage training, linker, KG/Lipinski fusion, API, assistant layer) with a consistent protocol.
-- Planned upgrade: retrain with strict pair-level or document-level split as the next methodological improvement.
-
-
-## Checkpoints (Google Drive)
-
-Download folder: [Google Drive — MedGuard checkpoints](https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing)
-
-Same list as `CHECKPOINTS.md`:
-
-- **Training / runtime:** `stage1_ner_best.pt`, `stage2_interaction_best.pt`, `stage3_severity_best.pt` → place under `backend/app/models/checkpoints/` 
-
-
-## Safety Note
-
-This project is for **academic and research demonstration only**. It is **not** a clinical decision-support system and must not replace licensed medical advice.
-
-## Project Structure 
-
-```text
-MedGuard-clean/
-├─ README.md
-├─ CHECKPOINTS.md
-├─ .gitignore
-└─ backend/
-   ├─ main.py                 # FastAPI app, lifespan loads models/KG/Lipinski, port selection
-   ├─ requirements.txt       # Core: torch, transformers, fastapi, pandas, etc.
-   ├─ requirements-llm.txt    # Optional: anthropic SDK for assistant only
-   └─ app/
-      ├─ __init__.py
-      ├─ api/
-      │  ├─ __init__.py
-      │  ├─ routes.py             # /analyze, /health, /drugs
-      │  └─ assistant_routes.py   # /assistant/* (prefix included in router)
-      ├─ models/
-      │  ├─ __init__.py
-      │  ├─ medguard_model.py     # MedGuardModel, labels, load_model/load_tokenizer
-      │  ├─ trainer.py            # Stages 1–3, BalancedSoftmax severity loss
-      │  └─ checkpoints/          # .pt files (ignored by git; content from Drive)
-      ├─ data/
-      │  ├─ preprocessor.py       # DDICorpus XML → sentences
-      │  ├─ drugbank_processor.py # DrugBank XML → drugbank.db
-      │  ├─ entity_linker.py      # DDInter linking + snapshots sqlite
-      │  ├─ lipinski_processor.py
-      │  ├─ kb_normalization.py
-      │  ├─ ddinter_vocabulary.py
-      │  ├─ corpus_inspector.py
-      │  ├─ ddinter_code_{A,B,D,H,L,P,R,V}.csv
-      │  └─ DB_compounds_lipinski.csv
-      ├─ knowledge_graph/
-      │  ├─ __init__.py
-      │  ├─ graph_builder.py      # DrugKnowledgeGraph, demo graph
-      │  └─ kg_builder_full.py      # Full KG build script
-      ├─ utils/
-      │  └─ __init__.py
-      └─ static/
-         └─ demo.html
+```bash
+curl -X POST http://127.0.0.1:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"drug_a": "Warfarin", "drug_b": "Aspirin", "text": ""}'
 ```
 
-Repository: [MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
+---
+
+## API reference
+
+Base path: `/api` — interactive schema at `/docs` when the server is running.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/analyze` | Core DDI inference → `DDIResponse` JSON |
+| `GET` | `/api/health` | Model, KG, Lipinski, assistant readiness |
+| `GET` | `/api/drugs?limit=50` | Sample drug names from the loaded graph |
+| `POST` | `/api/assistant/chat` | Claude chat with `medguard_analyze_pair` tool |
+
+### `POST /api/analyze`
+
+**Request body**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `drug_a` | Yes | First drug name |
+| `drug_b` | Yes | Second drug name |
+| `text` | No | Clinical context; if empty, a synthetic sentence is built |
+
+**Response highlights:** `interaction_type`, `severity_label`, `severity_color`, `confidence`, `detected_entities`, `kg_context`, `lipinski_context`, `modality_coverage`, `plain_guidance`, `interaction_reason`.
+
+**Inference flow**
+
+1. Tokenise text (max 128 tokens); locate drug spans via offset mapping.
+2. Look up KG embeddings (128-d) and Lipinski features (5-d); missing → zeros + `modality_coverage` flags.
+3. Forward pass on **stage3** model → NER + severity logits.
+4. Forward pass on **stage2** model (if present) → interaction logits; else interaction from stage3.
+5. Softmax → labels; attach DrugBank edge text as `kg_context` when a direct KG edge exists.
+
+### `POST /api/assistant/chat`
+
+Claude (`claude-3-5-haiku-20241022` by default) calls `medguard_analyze_pair`, which invokes the same `run_pair_inference()` as `/api/analyze`. Responses include a `tool_trace` for transparency. Requires `ANTHROPIC_API_KEY`.
+
+---
+
+## Training from scratch
+
+All commands run from **`backend/`**. Large raw datasets are **not** included in git.
+
+### Prerequisites
+
+| Asset | Expected path | Purpose |
+|-------|---------------|---------|
+| DDI Corpus XML | `app/data/DDICorpus/` | Stages 1–3 sentences |
+| DrugBank 5.0 XML | `app/data/drugbank_full.xml/full database.xml` | `drugbank.db` + KG seed |
+| DDInter CSVs | `app/data/ddinter_code_*.csv` | Stage 3 severity labels (partial set in repo) |
+| Lipinski CSV | `app/data/DB_compounds_lipinski.csv` | Shipped in repo |
+
+### Build and train
+
+```bash
+cd backend
+
+# 1. DrugBank → SQLite
+python -m app.data.drugbank_processor
+
+# 2. Knowledge graph + node2vec (recommended before Stages 2–3)
+python -m app.knowledge_graph.kg_builder_full
+
+# 3. Three-stage curriculum
+python -m app.models.trainer --stage all
+```
+
+**Outputs**
+
+- `app/models/checkpoints/stage1_ner_best.pt`
+- `app/models/checkpoints/stage2_interaction_best.pt`
+- `app/models/checkpoints/stage3_severity_best.pt`
+- `app/data/linking_snapshots.sqlite` (entity-linker audit log)
+
+**CLI options:** `--stage {1,2,3,all}`, `--epochs1`, `--epochs2`, `--epochs3`, `--model` (default: Bio_ClinicalBERT).
+
+### Default hyperparameters
+
+| Setting | Stage 1 (NER) | Stage 2 (Interaction) | Stage 3 (Severity) |
+|---------|---------------|------------------------|---------------------|
+| Epochs | 5 | 10 | 10 |
+| Batch size | 16 | 4 | 4 |
+| Learning rate | 2e-5 | 1e-4 | 1e-4 |
+| Gradient accumulation | — | 4 | 4 |
+| Validation split | 0.15 | 0.15 | 0.15 |
+| Max length | 128 | 128 | 128 |
+| Loss | Weighted CE | Weighted CE | Balanced Softmax |
+| Validation metric | Macro-F1 (B+I) | Macro-F1 | Macro-F1 |
+
+**KG build (node2vec):** 200 walks × length 30, window 10, **128-d** output.
+
+---
+
+## Three-stage curriculum
+
+### Stage 1 — NER
+
+- Trains Bio_ClinicalBERT + NER head on DDI Corpus token labels.
+- Weighted cross-entropy downweights class `O`.
+- Checkpoint: `stage1_ner_best.pt`.
+
+### Stage 2 — Interaction type
+
+- Loads Stage 1 weights; **freezes** encoder + NER head.
+- Trains `drug_fusion`, `pair_projection`, `interaction_head`.
+- Labels from DDI Corpus interaction annotations.
+- Checkpoint: `stage2_interaction_best.pt`.
+
+### Stage 3 — Severity
+
+- Loads Stage 2 weights; **freezes** interaction head.
+- Severity labels from DDInter via `DictionaryFirstLinker`.
+- Balanced Softmax (logit adjustment) for sparse `caution` class.
+- Checkpoint: `stage3_severity_best.pt`.
+
+### DDInter level → severity label
+
+| DDInter `level` | Model label |
+|-----------------|-------------|
+| *(no match / safe negative)* | `safe` |
+| `minor` | `caution` |
+| `moderate` | `warning` |
+| `major`, `contraindicated` | `danger` |
+
+### Runtime checkpoint roles
+
+| File | Loaded by API | Provides |
+|------|---------------|----------|
+| `stage3_severity_best.pt` | Yes (required) | NER + severity |
+| `stage2_interaction_best.pt` | Yes (recommended) | Interaction type |
+| `stage1_ner_best.pt` | No | Training chain only |
+| `best_model_3heads.pt` | Legacy fallback | All heads if stage files absent |
+
+---
+
+## Entity linking
+
+`DictionaryFirstLinker` (`entity_linker.py`) resolves DDI Corpus drug strings to DDInter names through a **deterministic six-step chain** (first match wins):
+
+| Step | Strategy | Effect |
+|------|----------|--------|
+| 1 | `class_routing` | Drug class phrases (e.g. “ACE inhibitor”) — **excluded** from severity training |
+| 2 | `ddinter_surface` | Normalised name in `ddinter_drug_names` |
+| 3 | DrugBank synonym | Synonym → DrugBank ID → best DDInter match |
+| 4 | KG maps | `knowledge_graph.pkl` name maps → DDInter |
+| 5 | `drugbank_only` | In DrugBank but not DDInter — **excluded** from Stage 3 |
+| 6 | `passthrough` | Normalised raw string (lookup often misses) |
+
+Resolutions are logged to `linking_snapshots.sqlite` with a unique `run_id` (reference run: `854063fe93f2b781`).
+
+Text normalisation for all KB lookups: `normalize_kb_text()` in `kb_normalization.py` (lowercase, strip parentheses/punctuation, remove salt forms).
+
+---
+
+## Training vs inference
+
+| Phase | How drug text is pooled |
+|-------|-------------------------|
+| Stages 2–3 **training** | **[CLS] token** (entity spans not passed to `forward`) |
+| **Inference** | **Token span mean-pooling** on `drug_a` / `drug_b` via `find_token_span()` |
+
+During training, sentence context plus KG/Lipinski side features carry drug identity. At inference, users supply explicit drug names, so span pooling is used. See [Known limitations](#known-limitations).
+
+---
+
+## Project structure
+
+```text
+MedGuard/
+├── README.md                     # This file
+├── CHECKPOINTS.md                # Google Drive download links
+├── PRESENTATION_GUIDE.md         # Demo script and examiner Q&A
+├── ARCHITECTURE_GRAPHS_CN.md     # Mermaid architecture diagrams
+└── backend/
+    ├── main.py                   # FastAPI entry (lifespan loads models + KG)
+    ├── requirements.txt          # Core: torch, transformers, fastapi, …
+    ├── requirements-llm.txt      # Optional: anthropic SDK
+    └── app/
+        ├── api/
+        │   ├── routes.py             # /api/analyze, /health, /drugs
+        │   └── assistant_routes.py     # /api/assistant/chat
+        ├── models/
+        │   ├── medguard_model.py       # MedGuardModel architecture
+        │   ├── trainer.py              # Three-stage training CLI
+        │   └── checkpoints/            # .pt weights (gitignored)
+        ├── data/
+        │   ├── preprocessor.py
+        │   ├── drugbank_processor.py
+        │   ├── entity_linker.py
+        │   ├── ddinter_vocabulary.py
+        │   ├── kb_normalization.py
+        │   ├── lipinski_processor.py
+        │   ├── DB_compounds_lipinski.csv
+        │   └── ddinter_code_*.csv
+        ├── knowledge_graph/
+        │   ├── graph_builder.py        # DrugKnowledgeGraph
+        │   └── kg_builder_full.py      # Builds knowledge_graph.pkl
+        └── static/
+            └── demo.html               # Browser UI
+```
+
+---
+
+## Data and artefacts
+
+| File | Role |
+|------|------|
+| `drugbank.db` | Drugs, synonyms, interactions; DDInter vocab |
+| `knowledge_graph.pkl` | NetworkX graph + node2vec embeddings + name maps |
+| `DB_compounds_lipinski.csv` | Five physicochemical features per compound |
+| `linking_snapshots.sqlite` | Entity-linker resolution audit trail |
+
+**Primary external sources:** DDI Corpus (SemEval-2013 Task 9), DrugBank 5.0, DDInter, Lipinski Rule of Five descriptors.
+
+---
+
+## Known limitations
+
+- **DDInter coverage (~23%)** — only 795 / 3,411 pairs carry severity labels; constrains Stage 3 F1.
+- **Drug-class mentions** — 539 `class_routing` exclusions; no class→ingredient expansion yet.
+- **Train/inference span mismatch** — CLS pooling in Stages 2–3 vs span pooling at inference.
+- **Sentence-level validation split** — may be optimistic; pair- or document-level split would be stricter.
+- **No probability calibration** — confidences are raw softmax, not ECE-corrected.
+- **No automated test suite** — pytest / CI not included.
+- **Incomplete KG/Lipinski coverage** — zero vectors + `modality_coverage` flags in API responses.
+- **No modality ablation** — contribution of text vs KG vs Lipinski not isolated in experiments.
+
+Future work: expand DDInter CSV coverage and fuzzy matching, span-consistent training, calibration metrics, pharmacist evaluation, full patient-facing React app.
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [README.md](README.md) | Project overview, setup, API, training (this file) |
+| [CHECKPOINTS.md](CHECKPOINTS.md) | Checkpoint download instructions |
+| [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md) | Presentation structure, constants, likely questions |
+| [ARCHITECTURE_GRAPHS_CN.md](ARCHITECTURE_GRAPHS_CN.md) | Mermaid diagrams for slides and reports |
+
+---
+
+## References
+
+- Alsentzer, E., et al. (2019). Publicly available clinical BERT embeddings. *2nd Clinical NLP Workshop*.
+- Herrero-Zazo, M., et al. (2013). The DDI corpus. *Journal of Biomedical Informatics*, 46(5), 914–920.
+- Grover, A., & Leskovec, J. (2016). node2vec: Scalable feature learning for networks. *ACM SIGKDD*.
+- Lipinski, C.A., et al. (1997). Experimental and computational approaches to solubility/permeability. *Adv. Drug Deliv. Rev.*, 23, 3–25.
+- Menon, A.K., et al. (2021). Long-tail learning via logit adjustment. *ICLR*.
+- Wishart, D.S., et al. (2018). DrugBank 5.0. *Nucleic Acids Research*, 46(D1), D1074–D1082.
+- Xiong, G., et al. (2022). DDInter: An online drug–drug interaction database. *Nucleic Acids Research*, 50(D1), D1200–D1207.
+
+---
+
+## Author
+
+**Alaa Hosny Saber Hassouba**  
+Student ID: **220717702**  
+Instructor: Doç.Dr. Selim Yılmaz  
+Course: **SE 4003** — Multidisciplinary Engineering Projects  
+Institution: Muğla Sıtkı Koçman University — Faculty of Engineering, Software Engineering
+
+**Repository:** [github.com/Eng-AlaaHosny/MedGuard](https://github.com/Eng-AlaaHosny/MedGuard)
+
 
