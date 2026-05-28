@@ -100,8 +100,6 @@ Lipinski CSV ─► (shipped in repo)
 | **Max tokens** | 128 (`MAX_LENGTH`) |
 | **Runtime checkpoints** | `stage3_severity_best.pt` (NER + severity); `stage2_interaction_best.pt` (interaction head) |
 
-**Diagrams (Mermaid, exportable for slides):** [ARCHITECTURE_GRAPHS_CN.md](ARCHITECTURE_GRAPHS_CN.md)  
-**Presentation / examiner Q&A:** [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md)
 
 ---
 
@@ -135,12 +133,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Optional — Claude assistant:**
 
-```bash
-pip install -r requirements-llm.txt
-export ANTHROPIC_API_KEY=your_key_here   # PowerShell: $env:ANTHROPIC_API_KEY="..."
-```
 
 ### 2. Download checkpoints
 
@@ -173,28 +166,9 @@ python main.py
 - Lipinski CSV (`DB_compounds_lipinski.csv`) is included in the repo.
 - Without checkpoints, the server starts but inference will fail until weights are present.
 
-### Example request
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"drug_a": "Warfarin", "drug_b": "Aspirin", "text": ""}'
-```
-
----
 
 ## API reference
-
-Base path: `/api` — interactive schema at `/docs` when the server is running.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/analyze` | Core DDI inference → `DDIResponse` JSON |
-| `GET` | `/api/health` | Model, KG, Lipinski, assistant readiness |
-| `GET` | `/api/drugs?limit=50` | Sample drug names from the loaded graph |
-| `POST` | `/api/assistant/chat` | Claude chat with `medguard_analyze_pair` tool |
-
-### `POST /api/analyze`
 
 **Request body**
 
@@ -418,8 +392,6 @@ Future work: expand DDInter CSV coverage and fuzzy matching, span-consistent tra
 |----------|---------|
 | [README.md](README.md) | Project overview, setup, API, training (this file) |
 | [CHECKPOINTS.md](CHECKPOINTS.md) | Checkpoint download instructions |
-| [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md) | Presentation structure, constants, likely questions |
-| [ARCHITECTURE_GRAPHS_CN.md](ARCHITECTURE_GRAPHS_CN.md) | Mermaid diagrams for slides and reports |
 
 ---
 
