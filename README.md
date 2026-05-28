@@ -392,6 +392,7 @@ Future work: expand DDInter CSV coverage and fuzzy matching, span-consistent tra
 |----------|---------|
 | [README.md](README.md) | Project overview, setup, API, training (this file) |
 | [CHECKPOINTS.md](CHECKPOINTS.md) | Checkpoint download instructions |
+| [MedGuard_Report_220717702.pdf](MedGuard_Report_220717702.pdf) | Full report / computational graphs|
 
 ---
 
@@ -411,6 +412,7 @@ Future work: expand DDInter CSV coverage and fuzzy matching, span-consistent tra
 
 **Alaa Hosny Saber Hassouba**  
 Student ID: **220717702**  
+Email : alaahassouba@posta.mu.edu.tr
 Instructor: Doç.Dr. Selim Yılmaz  
 Course: **SE 4003** — Multidisciplinary Engineering Projects  
 Institution: Muğla Sıtkı Koçman University — Faculty of Engineering, Software Engineering
