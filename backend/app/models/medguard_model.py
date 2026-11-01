@@ -10,6 +10,7 @@ SEVERITY_COLORS = {'safe': '#28a745', 'caution': '#ffc107', 'warning': '#fd7e14'
 STAGE_NER = 'ner'
 STAGE_INTERACTION = 'interaction'
 STAGE_SEVERITY = 'severity'
+STAGE_SEVERITY_FROZEN = 'severity_frozen'
 KG_DIM = 128
 LIPINSKI_DIM = 5
 
@@ -38,11 +39,21 @@ class MedGuardModel(nn.Module):
 
     # this function is used to get entity representation
     def get_entity_representation(self, token_repr: torch.Tensor, entity_spans: Optional[List]=None) -> torch.Tensor:
+        # API (batch 1): entity_spans is [(start, end)] or None → CLS if missing.
+        # Batched eval: entity_spans is a list of length B, each None or [(start, end)].
         if entity_spans is None or len(entity_spans) == 0:
             return token_repr[:, 0, :]
-        start, end = entity_spans[0]
-        span_repr = token_repr[:, start:end + 1, :]
-        return span_repr.mean(dim=1)
+        if isinstance(entity_spans[0], tuple):
+            start, end = entity_spans[0]
+            return token_repr[:, start:end + 1, :].mean(dim=1)
+        rows = []
+        for i, span in enumerate(entity_spans):
+            if not span:
+                rows.append(token_repr[i, 0, :])
+            else:
+                start, end = span[0]
+                rows.append(token_repr[i, start:end + 1, :].mean(dim=0))
+        return torch.stack(rows, dim=0)
 
     # this function is used to handle fuse drug features
     def fuse_drug_features(self, bert_repr: torch.Tensor, kg_embedding: Optional[torch.Tensor]=None, lipinski_feats: Optional[torch.Tensor]=None) -> torch.Tensor:
@@ -102,8 +113,13 @@ class MedGuardModel(nn.Module):
                 p.requires_grad = True
             for p in self.severity_head.parameters():
                 p.requires_grad = True
+        elif stage == STAGE_SEVERITY_FROZEN:
+            for p in self.parameters():
+                p.requires_grad = False
+            for p in self.severity_head.parameters():
+                p.requires_grad = True
         else:
-            raise ValueError(f"Unknown stage: {stage}. Use '{STAGE_NER}', '{STAGE_INTERACTION}', or '{STAGE_SEVERITY}'.")
+            raise ValueError(f"Unknown stage: {stage}. Use '{STAGE_NER}', '{STAGE_INTERACTION}', '{STAGE_SEVERITY}', or '{STAGE_SEVERITY_FROZEN}'.")
         trainable = sum((p.numel() for p in self.parameters() if p.requires_grad))
         total = sum((p.numel() for p in self.parameters()))
         print(f"  Stage '{stage}': {trainable:,} / {total:,} parameters trainable")

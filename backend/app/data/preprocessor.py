@@ -99,5 +99,5 @@ if __name__ == '__main__':
     base_dir = os.path.dirname(os.path.abspath(__file__))
     corpus_dir = os.path.join(base_dir, 'DDICorpus')
     train, test = load_ddi_corpus(corpus_dir)
-    print(f'Sample sentence: {(train[0].text if train else 'No data found')}')
-    print(f'Sample entities: {(train[0].entities if train else 'No data found')}')
+    print('Sample sentence:', train[0].text if train else 'No data found')
+    print('Sample entities:', train[0].entities if train else 'No data found')

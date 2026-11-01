@@ -24,10 +24,13 @@ STATIC_DIR = os.path.join(APP_DIR, 'static')
 MODELS_DIR = os.path.join(APP_DIR, 'models', 'checkpoints')
 KG_PATH = os.path.join(DATA_DIR, 'knowledge_graph.pkl')
 LIPINSKI_PATH = os.path.join(DATA_DIR, 'DB_compounds_lipinski.csv')
-CHECKPOINT_CANDIDATES = [os.path.join(MODELS_DIR, 'stage3_severity_best.pt'), os.path.join(MODELS_DIR, 'best_model_3heads.pt')]
-INTERACTION_CHECKPOINT_PATH = os.path.join(MODELS_DIR, 'stage2_interaction_best.pt')
+CHECKPOINT_CANDIDATES = [os.path.join(MODELS_DIR, 'stage3_severity_span.pt'), os.path.join(MODELS_DIR, 'stage3_severity_best.pt'), os.path.join(MODELS_DIR, 'best_model_3heads.pt')]
+INTERACTION_CHECKPOINT_PATH = os.path.join(MODELS_DIR, 'stage2_interaction_span.pt')
+if not os.path.exists(INTERACTION_CHECKPOINT_PATH):
+    INTERACTION_CHECKPOINT_PATH = os.path.join(MODELS_DIR, 'stage2_interaction_best.pt')
+SINGLE_TRUNK_NAME = 'stage3_severity_frozen_trunk.pt'
 MODEL_NAME = 'emilyalsentzer/Bio_ClinicalBERT'
-LISTEN_HOST = '0.0.0.0'
+LISTEN_HOST = '127.0.0.1'
 
 
 def pick_listen_port(host: str = LISTEN_HOST, start: int = 8000, span: int = 10) -> int:
@@ -94,9 +97,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         print(f'      ERROR: {exc}')
         raise
-    print('\n[2b/4] Loading dedicated interaction model...')
+    print('\n[2b/4] Interaction head...')
     try:
-        if os.path.exists(INTERACTION_CHECKPOINT_PATH):
+        single_trunk = resolved_checkpoint is not None and os.path.basename(resolved_checkpoint) == SINGLE_TRUNK_NAME
+        if single_trunk:
+            routes_module.interaction_model = None
+            print('      [OK] One trunk. Interaction, NER, and severity share this checkpoint. No second BERT.')
+        elif os.path.exists(INTERACTION_CHECKPOINT_PATH):
             interaction_model = load_model(MODEL_NAME)
             interaction_state = torch.load(INTERACTION_CHECKPOINT_PATH, map_location=device)
             interaction_model.load_state_dict(interaction_state)
@@ -139,11 +146,14 @@ async def lifespan(app: FastAPI):
     listen_port = int(os.environ.get('MEDGUARD_LISTEN_PORT', '8000'))
     print('\n' + '=' * 60)
     print('MedGuard startup complete - API is ready.')
-    print(f'http://127.0.0.1:{listen_port}')
+    print(f'Demo for teacher:  http://127.0.0.1:{listen_port}')
+    print(f'                   http://localhost:{listen_port}')
+    print(f'API docs:          http://localhost:{listen_port}/docs')
+    print('Open one of the Demo links in Chrome / Edge (do not use 0.0.0.0).')
     if listen_port != 8000:
         print(
             f'Note: serving on port {listen_port} — open the URL above for the demo. '
-            f'If you use demo.html from disk, add ?api=http://127.0.0.1:{listen_port} or serve this app from /.'
+            f'If you use demo.html from disk, add ?api=http://localhost:{listen_port} or serve this app from /.'
         )
     print('=' * 60 + '\n')
     yield

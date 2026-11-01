@@ -1,0 +1,154 @@
+{
+  "method": "dynamic INT8 post-training quantization on nn.Linear",
+  "left_in_fp32": "embeddings, LayerNorm, attention matrix multiplies",
+  "disk_mb": {
+    "fp32": 422.7,
+    "int8": 171.0
+  },
+  "note": "Scored on the same 15% sentence split as Step 1. Source weights are the frozen-trunk checkpoint.",
+  "ddi_int8_cls": {
+    "macro_f1": 0.3841,
+    "per_class": {
+      "false": {
+        "f1": 0.8293,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.3238,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.3257,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.3466,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.0952,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.3841,
+      "ci95_low": 0.3538,
+      "ci95_high": 0.4158,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 3315
+    }
+  },
+  "severity_int8_cls": {
+    "macro_f1": 0.2916,
+    "per_class": {
+      "safe": {
+        "f1": 0.6612,
+        "support": 168
+      },
+      "caution": {
+        "f1": 0.1224,
+        "support": 12
+      },
+      "warning": {
+        "f1": 0.3614,
+        "support": 88
+      },
+      "danger": {
+        "f1": 0.0213,
+        "support": 68
+      }
+    },
+    "bootstrap": {
+      "n": 336,
+      "macro_f1": 0.2916,
+      "ci95_low": 0.2483,
+      "ci95_high": 0.3386,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 336
+    }
+  },
+  "ddi_int8_span": {
+    "macro_f1": 0.195,
+    "per_class": {
+      "false": {
+        "f1": 0.8971,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.0,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.0356,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.0426,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.0,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.195,
+      "ci95_low": 0.1847,
+      "ci95_high": 0.2069,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 3278,
+      "n": 3315
+    }
+  },
+  "severity_int8_span": {
+    "macro_f1": 0.1647,
+    "per_class": {
+      "safe": {
+        "f1": 0.6587,
+        "support": 168
+      },
+      "caution": {
+        "f1": 0.0,
+        "support": 12
+      },
+      "warning": {
+        "f1": 0.0,
+        "support": 88
+      },
+      "danger": {
+        "f1": 0.0,
+        "support": 68
+      }
+    },
+    "bootstrap": {
+      "n": 336,
+      "macro_f1": 0.1647,
+      "ci95_low": 0.1536,
+      "ci95_high": 0.1757,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 331,
+      "n": 336
+    }
+  },
+  "latency_span_batch1": {
+    "n": 30,
+    "fp32_seconds_per_pair": 0.132,
+    "int8_seconds_per_pair": 0.066
+  },
+  "ram": {
+    "working_set_mb": 1905.2,
+    "peak_working_set_mb": 2018.5
+  }
+}

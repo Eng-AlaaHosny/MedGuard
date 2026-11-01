@@ -17,3 +17,16 @@ backend/venv/
 backend/.venv/
 
 backend/app/models/checkpoints/
+
+# Local reports - do not push
+MedGuard_Compression_Results.md
+MedGuard_Compression_Results.pdf
+MedGuard_Compression_Results_T.pdf
+MedGuard_Compression_Results_Teacher.md
+MedGuard_Report_220717702.pdf
+.vscode/
+
+# Local-only report utilities
+backend/app/reports/_make_*.py
+backend/app/reports/_integrity_check.py
+backend/app/reports/_pair_check.py

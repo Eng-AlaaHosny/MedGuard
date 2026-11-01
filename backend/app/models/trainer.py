@@ -15,7 +15,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import f1_score, classification_report
 from collections import Counter
 import numpy as np
-from app.models.medguard_model import MedGuardModel, load_tokenizer, STAGE_NER, STAGE_INTERACTION, STAGE_SEVERITY, DDI_LABELS, KG_DIM, LIPINSKI_DIM
+from app.models.medguard_model import MedGuardModel, load_tokenizer, STAGE_NER, STAGE_INTERACTION, STAGE_SEVERITY, STAGE_SEVERITY_FROZEN, DDI_LABELS, KG_DIM, LIPINSKI_DIM
 from app.data.preprocessor import load_ddi_corpus, DDISentence
 from app.data.entity_linker import build_stage3_resolver, looks_like_drug_class, normalize_text
 try:
@@ -48,6 +48,46 @@ def normalize_drug_name(name: str) -> str:
     s2 = ' '.join(parts).strip()
     out = s2 if s2 else s
     return _ALIAS_MAP.get(out, out)
+
+PROTECTED_CHECKPOINTS = {
+    'stage1_ner_best.pt',
+    'stage2_interaction_best.pt',
+    'stage2_interaction_best_baseline_04190.pt',
+    'stage3_severity_best.pt',
+    'stage3_severity_frozen_trunk.pt',
+    'stage3_severity_frozen_trunk_int8.pt',
+}
+
+def assert_safe_save(path: str) -> None:
+    if os.path.basename(path) in PROTECTED_CHECKPOINTS:
+        raise SystemExit(f'Refusing to overwrite protected checkpoint: {path}')
+
+def pair_key(drug_a: str, drug_b: str):
+    return tuple(sorted((normalize_drug_name(drug_a), normalize_drug_name(drug_b))))
+
+def token_span_from_offsets(offset_mapping, start: int, end: int):
+    idxs = []
+    for idx, (token_start, token_end) in enumerate(offset_mapping):
+        if token_start == 0 and token_end == 0:
+            continue
+        if token_start >= start and token_end <= end + 1 and token_end > token_start:
+            idxs.append(idx)
+    if not idxs:
+        return None
+    return (idxs[0], idxs[-1])
+
+def model_spans(spans):
+    if spans is None:
+        return None
+    return [None if span is None else [tuple(span)] for span in spans]
+
+def disjoint_f1(true, pred, keys, train_pairs, report_fn):
+    kept_true = [t for t, key in zip(true, keys) if key not in train_pairs]
+    kept_pred = [p for p, key in zip(pred, keys) if key not in train_pairs]
+    print(f'Pair-disjoint validation samples: {len(kept_true)} / {len(true)}')
+    if not kept_true:
+        return 0.0
+    return report_fn(kept_true, kept_pred)
 
 # this function is used to load drugbank canonical map
 def load_drugbank_canonical_map(db_path: str) -> Dict[str, str]:
@@ -289,26 +329,34 @@ class NERDataset(Dataset):
 class DDIDataset(Dataset):
 
     # this function is used to set up initial values for this object
-    def __init__(self, sentences: List[DDISentence], tokenizer, max_length: int=128):
+    def __init__(self, sentences: List[DDISentence], tokenizer, max_length: int=128, span_pooling: bool=False):
         self.samples = []
-        self._build(sentences, tokenizer, max_length)
+        self._build(sentences, tokenizer, max_length, span_pooling)
 
     # this function is used to handle build
-    def _build(self, sentences, tokenizer, max_length):
+    def _build(self, sentences, tokenizer, max_length, span_pooling):
         for sent in sentences:
             if not sent.interactions:
                 continue
-            encoding = tokenizer(sent.text, max_length=max_length, truncation=True, padding='max_length', return_tensors='pt')
+            encoding = tokenizer(sent.text, max_length=max_length, truncation=True, padding='max_length', return_offsets_mapping=span_pooling, return_tensors='pt')
             input_ids = encoding['input_ids'].squeeze(0)
             attention_mask = encoding['attention_mask'].squeeze(0)
+            offsets = encoding['offset_mapping'].squeeze(0).tolist() if span_pooling else None
+            by_id = {entity.id: entity for entity in sent.entities}
             for interaction in sent.interactions:
                 ddi_type = interaction.get('type', 'false')
                 ddi_label = LABEL2IDX.get(ddi_type, 0)
                 e1_id = interaction.get('e1', '')
                 e2_id = interaction.get('e2', '')
-                drug_a = next((e.text for e in sent.entities if e.id == e1_id), '')
-                drug_b = next((e.text for e in sent.entities if e.id == e2_id), '')
-                self.samples.append({'input_ids': input_ids, 'attention_mask': attention_mask, 'label': torch.tensor(ddi_label, dtype=torch.long), 'drug_a': drug_a, 'drug_b': drug_b, 'text': sent.text})
+                ent_a = by_id.get(e1_id)
+                ent_b = by_id.get(e2_id)
+                drug_a = ent_a.text if ent_a is not None else ''
+                drug_b = ent_b.text if ent_b is not None else ''
+                sample = {'input_ids': input_ids, 'attention_mask': attention_mask, 'label': torch.tensor(ddi_label, dtype=torch.long), 'drug_a': drug_a, 'drug_b': drug_b, 'text': sent.text}
+                if span_pooling:
+                    sample['span_a'] = token_span_from_offsets(offsets, ent_a.start, ent_a.end) if ent_a is not None else None
+                    sample['span_b'] = token_span_from_offsets(offsets, ent_b.start, ent_b.end) if ent_b is not None else None
+                self.samples.append(sample)
 
     # this function is used to handle len
     def __len__(self):
@@ -322,12 +370,12 @@ class DDIDataset(Dataset):
 class SeverityDataset(Dataset):
 
     # this function is used to set up initial values for this object
-    def __init__(self, sentences: List[DDISentence], tokenizer, severity_lookup: Dict, name_resolver: Optional[Callable[[str], str]]=None, max_length: int=128, neg_to_pos_ratio: float=1.0, seed: int=42):
+    def __init__(self, sentences: List[DDISentence], tokenizer, severity_lookup: Dict, name_resolver: Optional[Callable[[str], str]]=None, max_length: int=128, neg_to_pos_ratio: float=1.0, seed: int=42, span_pooling: bool=False):
         self.samples = []
-        self._build(sentences, tokenizer, severity_lookup, name_resolver, max_length, neg_to_pos_ratio, seed)
+        self._build(sentences, tokenizer, severity_lookup, name_resolver, max_length, neg_to_pos_ratio, seed, span_pooling)
 
     # this function is used to handle build
-    def _build(self, sentences, tokenizer, severity_lookup, name_resolver, max_length, neg_to_pos_ratio, seed):
+    def _build(self, sentences, tokenizer, severity_lookup, name_resolver, max_length, neg_to_pos_ratio, seed, span_pooling):
         import random
         rng = random.Random(seed)
         pos_samples = []
@@ -335,14 +383,18 @@ class SeverityDataset(Dataset):
         for sent in sentences:
             if not sent.interactions:
                 continue
-            encoding = tokenizer(sent.text, max_length=max_length, truncation=True, padding='max_length', return_tensors='pt')
+            encoding = tokenizer(sent.text, max_length=max_length, truncation=True, padding='max_length', return_offsets_mapping=span_pooling, return_tensors='pt')
             input_ids = encoding['input_ids'].squeeze(0)
             attention_mask = encoding['attention_mask'].squeeze(0)
+            offsets = encoding['offset_mapping'].squeeze(0).tolist() if span_pooling else None
+            by_id = {entity.id: entity for entity in sent.entities}
             for interaction in sent.interactions:
                 e1_id = interaction.get('e1', '')
                 e2_id = interaction.get('e2', '')
-                drug_a = next((e.text for e in sent.entities if e.id == e1_id), '')
-                drug_b = next((e.text for e in sent.entities if e.id == e2_id), '')
+                ent_a = by_id.get(e1_id)
+                ent_b = by_id.get(e2_id)
+                drug_a = ent_a.text if ent_a is not None else ''
+                drug_b = ent_b.text if ent_b is not None else ''
                 a_key = name_resolver(drug_a) if name_resolver else normalize_drug_name(drug_a)
                 b_key = name_resolver(drug_b) if name_resolver else normalize_drug_name(drug_b)
                 ddi_type = (interaction.get('type', 'false') or 'false').lower()
@@ -354,6 +406,9 @@ class SeverityDataset(Dataset):
                     if sev_label is None:
                         continue
                 sample = {'input_ids': input_ids, 'attention_mask': attention_mask, 'severity_label': torch.tensor(sev_label, dtype=torch.long), 'drug_a': drug_a, 'drug_b': drug_b, 'text': sent.text}
+                if span_pooling:
+                    sample['span_a'] = token_span_from_offsets(offsets, ent_a.start, ent_a.end) if ent_a is not None else None
+                    sample['span_b'] = token_span_from_offsets(offsets, ent_b.start, ent_b.end) if ent_b is not None else None
                 if sev_label == 0:
                     neg_samples.append(sample)
                 else:
@@ -381,11 +436,32 @@ def collate_ner(batch):
 
 # this function is used to handle collate ddi
 def collate_ddi(batch):
-    return {'input_ids': torch.stack([b['input_ids'] for b in batch]), 'attention_mask': torch.stack([b['attention_mask'] for b in batch]), 'label': torch.stack([b['label'] for b in batch]), 'drug_a': [b['drug_a'] for b in batch], 'drug_b': [b['drug_b'] for b in batch], 'text': [b['text'] for b in batch]}
+    out = {'input_ids': torch.stack([b['input_ids'] for b in batch]), 'attention_mask': torch.stack([b['attention_mask'] for b in batch]), 'label': torch.stack([b['label'] for b in batch]), 'drug_a': [b['drug_a'] for b in batch], 'drug_b': [b['drug_b'] for b in batch], 'text': [b['text'] for b in batch]}
+    if 'span_a' in batch[0]:
+        out['span_a'] = [b['span_a'] for b in batch]
+        out['span_b'] = [b['span_b'] for b in batch]
+    return out
 
 # this function is used to handle collate severity
 def collate_severity(batch):
-    return {'input_ids': torch.stack([b['input_ids'] for b in batch]), 'attention_mask': torch.stack([b['attention_mask'] for b in batch]), 'severity_label': torch.stack([b['severity_label'] for b in batch]), 'drug_a': [b['drug_a'] for b in batch], 'drug_b': [b['drug_b'] for b in batch], 'text': [b['text'] for b in batch]}
+    out = {'input_ids': torch.stack([b['input_ids'] for b in batch]), 'attention_mask': torch.stack([b['attention_mask'] for b in batch]), 'severity_label': torch.stack([b['severity_label'] for b in batch]), 'drug_a': [b['drug_a'] for b in batch], 'drug_b': [b['drug_b'] for b in batch], 'text': [b['text'] for b in batch]}
+    if 'span_a' in batch[0]:
+        out['span_a'] = [b['span_a'] for b in batch]
+        out['span_b'] = [b['span_b'] for b in batch]
+    return out
+
+def forward_pair(model, batch, device, kg_embeddings, name_to_id, lipinski):
+    ids = batch['input_ids'].to(device)
+    mask = batch['attention_mask'].to(device)
+    kg_a = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_a']], dim=0)
+    kg_b = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_b']], dim=0)
+    lip_a = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_a']], dim=0)
+    lip_b = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_b']], dim=0)
+    spans = {}
+    if 'span_a' in batch:
+        spans['drug_a_spans'] = model_spans(batch['span_a'])
+        spans['drug_b_spans'] = model_spans(batch['span_b'])
+    return model(input_ids=ids, attention_mask=mask, kg_embedding_a=kg_a, kg_embedding_b=kg_b, lipinski_feats_a=lip_a, lipinski_feats_b=lip_b, **spans)
 
 # this function is used to compute weights
 def compute_weights(labels: List[int], num_classes: int) -> torch.Tensor:
@@ -500,7 +576,7 @@ def train_stage1_ner(data_dir: str, output_dir: str, model_name: str='emilyalsen
     return save_path
 
 # this function is used to train stage2 interaction
-def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, model_name: str='emilyalsentzer/Bio_ClinicalBERT', num_epochs: int=10, batch_size: int=4, lr: float=0.0001, accumulation_steps: int=4, val_split: float=0.15):
+def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, model_name: str='emilyalsentzer/Bio_ClinicalBERT', num_epochs: int=10, batch_size: int=4, lr: float=0.0001, accumulation_steps: int=4, val_split: float=0.15, span_pooling: bool=False, save_name: str=''):
     print('\n' + '=' * 60)
     print('STAGE 2 — INTERACTION HEAD TRAINING')
     print('=' * 60)
@@ -515,9 +591,12 @@ def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, m
     kg_embeddings = load_kg_embeddings(kg_path)
     lipinski = load_lipinski_features(lipinski_path)
     name_to_id = load_name_to_id_map(db_path)
-    train_ds = DDIDataset(train_sents, tokenizer)
-    val_ds = DDIDataset(val_sents, tokenizer)
+    train_ds = DDIDataset(train_sents, tokenizer, span_pooling=span_pooling)
+    val_ds = DDIDataset(val_sents, tokenizer, span_pooling=span_pooling)
     print(f'Train samples: {len(train_ds)} | Val samples: {len(val_ds)}')
+    if span_pooling:
+        found = sum(1 for sample in train_ds.samples if sample.get('span_a') and sample.get('span_b'))
+        print(f'Span pooling: both drug spans found for {found} / {len(train_ds)} train pairs')
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=collate_ddi, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, collate_fn=collate_ddi, num_workers=0)
     ddi_labels_list = [s['label'].item() for s in train_ds.samples]
@@ -536,21 +615,18 @@ def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, m
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps // 10, num_training_steps=total_steps)
     criterion = nn.CrossEntropyLoss(weight=ddi_w)
     best_f1 = 0.0
-    save_path = os.path.join(output_dir, 'stage2_interaction_best.pt')
+    default_name = 'stage2_interaction_span.pt' if span_pooling else 'stage2_interaction_best.pt'
+    save_path = os.path.join(output_dir, save_name or default_name)
+    assert_safe_save(save_path)
     os.makedirs(output_dir, exist_ok=True)
+    train_pairs = {pair_key(sample['drug_a'], sample['drug_b']) for sample in train_ds.samples}
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0.0
         optimizer.zero_grad()
         for step, batch in enumerate(train_loader):
-            ids = batch['input_ids'].to(device)
-            mask = batch['attention_mask'].to(device)
             labs = batch['label'].to(device)
-            kg_a = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_a']], dim=0)
-            kg_b = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_b']], dim=0)
-            lip_a = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_a']], dim=0)
-            lip_b = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_b']], dim=0)
-            outputs = model(input_ids=ids, attention_mask=mask, kg_embedding_a=kg_a, kg_embedding_b=kg_b, lipinski_feats_a=lip_a, lipinski_feats_b=lip_b)
+            outputs = forward_pair(model, batch, device, kg_embeddings, name_to_id, lipinski)
             loss = criterion(outputs['interaction_logits'], labs)
             loss = loss / accumulation_steps
             loss.backward()
@@ -564,21 +640,19 @@ def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, m
                 print(f'  [train] epoch={epoch + 1} step={step + 1}/{len(train_loader)} loss={loss.item() * accumulation_steps:.4f}')
         avg_loss = total_loss / max(1, len(train_loader))
         model.eval()
-        all_true, all_pred = ([], [])
+        all_true, all_pred, all_keys = ([], [], [])
         with torch.no_grad():
             for batch in val_loader:
-                ids = batch['input_ids'].to(device)
-                mask = batch['attention_mask'].to(device)
                 labs = batch['label'].to(device)
-                kg_a = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_a']], dim=0)
-                kg_b = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_b']], dim=0)
-                lip_a = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_a']], dim=0)
-                lip_b = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_b']], dim=0)
-                out = model(input_ids=ids, attention_mask=mask, kg_embedding_a=kg_a, kg_embedding_b=kg_b, lipinski_feats_a=lip_a, lipinski_feats_b=lip_b)
+                out = forward_pair(model, batch, device, kg_embeddings, name_to_id, lipinski)
                 all_pred.extend(out['interaction_logits'].argmax(-1).cpu().tolist())
                 all_true.extend(labs.cpu().tolist())
+                all_keys.extend(pair_key(a, b) for a, b in zip(batch['drug_a'], batch['drug_b']))
         print(f'\nEpoch {epoch + 1}/{num_epochs}  |  loss={avg_loss:.4f}')
-        macro_f1 = report_ddi(all_true, all_pred)
+        print('Full validation split:')
+        full_f1 = report_ddi(all_true, all_pred)
+        print('Pairs absent from training:')
+        macro_f1 = disjoint_f1(all_true, all_pred, all_keys, train_pairs, report_ddi) if span_pooling else full_f1
         if macro_f1 > best_f1:
             best_f1 = macro_f1
             torch.save(model.state_dict(), save_path)
@@ -587,7 +661,7 @@ def train_stage2_interaction(data_dir: str, output_dir: str, stage1_ckpt: str, m
     return save_path
 
 # this function is used to train stage3 severity
-def train_stage3_severity(data_dir: str, output_dir: str, stage2_ckpt: str, model_name: str='emilyalsentzer/Bio_ClinicalBERT', num_epochs: int=10, batch_size: int=4, lr: float=0.0001, accumulation_steps: int=4, val_split: float=0.15):
+def train_stage3_severity(data_dir: str, output_dir: str, stage2_ckpt: str, model_name: str='emilyalsentzer/Bio_ClinicalBERT', num_epochs: int=10, batch_size: int=4, lr: float=0.0001, accumulation_steps: int=4, val_split: float=0.15, freeze_trunk: bool=False, save_name: str='', span_pooling: bool=False):
     print('\n' + '=' * 60)
     print('STAGE 3 — SEVERITY HEAD TRAINING')
     print('  (Labels: curated DDInter risk levels)')
@@ -642,13 +716,14 @@ def train_stage3_severity(data_dir: str, output_dir: str, stage2_ckpt: str, mode
     print(f'Matched to DDInter risk levels       : {pos_matched:,}')
     print(f'Coverage                             : {cov:.2%}')
     print(f'Skipped (drug-class mentions)        : {pos_skipped_class:,}')
-    print(f'Linker snapshot run_id               : {resolve_stats.get('run_id')} (db={snapshot_db})')
+    run_id = resolve_stats.get('run_id')
+    print(f'Linker snapshot run_id               : {run_id} (db={snapshot_db})')
     if unmatched_examples:
         print('Unmatched examples (raw -> normalized keys):')
         for ra, rb, ka, kb in unmatched_examples:
             print(f'  - {ra} / {rb}  ->  {ka} / {kb}')
-    train_ds = SeverityDataset(train_sents, tokenizer, severity_lookup, name_resolver=resolve_name, neg_to_pos_ratio=1.0)
-    val_ds = SeverityDataset(val_sents, tokenizer, severity_lookup, name_resolver=resolve_name, neg_to_pos_ratio=1.0)
+    train_ds = SeverityDataset(train_sents, tokenizer, severity_lookup, name_resolver=resolve_name, neg_to_pos_ratio=1.0, span_pooling=span_pooling)
+    val_ds = SeverityDataset(val_sents, tokenizer, severity_lookup, name_resolver=resolve_name, neg_to_pos_ratio=1.0, span_pooling=span_pooling)
     if callable(_flush_linker):
         _flush_linker()
     print(f'Train samples: {len(train_ds)} | Val samples: {len(val_ds)}')
@@ -669,26 +744,32 @@ def train_stage3_severity(data_dir: str, output_dir: str, stage2_ckpt: str, mode
         print(f'  ✓  Loaded Stage 2 weights from {stage2_ckpt}')
     else:
         print(f'  ⚠  Stage 2 checkpoint not found — not recommended')
-    model.set_stage(STAGE_SEVERITY)
+    model.set_stage(STAGE_SEVERITY_FROZEN if freeze_trunk else STAGE_SEVERITY)
+    if freeze_trunk:
+        print('Frozen-trunk ablation: encoder, NER, interaction head, drug_fusion, and pair_projection stay fixed. Only the severity head trains.')
     optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=lr, weight_decay=0.01)
     total_steps = len(train_loader) * num_epochs // accumulation_steps
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=total_steps // 10, num_training_steps=total_steps)
     best_f1 = 0.0
-    save_path = os.path.join(output_dir, 'stage3_severity_best.pt')
+    if save_name:
+        default_name = save_name
+    elif freeze_trunk:
+        default_name = 'stage3_severity_frozen_trunk.pt'
+    elif span_pooling:
+        default_name = 'stage3_severity_span.pt'
+    else:
+        default_name = 'stage3_severity_best.pt'
+    save_path = os.path.join(output_dir, default_name)
+    assert_safe_save(save_path)
     os.makedirs(output_dir, exist_ok=True)
+    train_pairs = {pair_key(sample['drug_a'], sample['drug_b']) for sample in train_ds.samples}
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0.0
         optimizer.zero_grad()
         for step, batch in enumerate(train_loader):
-            ids = batch['input_ids'].to(device)
-            mask = batch['attention_mask'].to(device)
             labs = batch['severity_label'].to(device)
-            kg_a = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_a']], dim=0)
-            kg_b = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_b']], dim=0)
-            lip_a = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_a']], dim=0)
-            lip_b = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_b']], dim=0)
-            outputs = model(input_ids=ids, attention_mask=mask, kg_embedding_a=kg_a, kg_embedding_b=kg_b, lipinski_feats_a=lip_a, lipinski_feats_b=lip_b)
+            outputs = forward_pair(model, batch, device, kg_embeddings, name_to_id, lipinski)
             loss = criterion(outputs['severity_logits'], labs) / accumulation_steps
             loss.backward()
             total_loss += loss.item() * accumulation_steps
@@ -701,21 +782,19 @@ def train_stage3_severity(data_dir: str, output_dir: str, stage2_ckpt: str, mode
                 print(f'  [train] epoch={epoch + 1} step={step + 1}/{len(train_loader)} loss={loss.item() * accumulation_steps:.4f}')
         avg_loss = total_loss / max(1, len(train_loader))
         model.eval()
-        all_true, all_pred = ([], [])
+        all_true, all_pred, all_keys = ([], [], [])
         with torch.no_grad():
             for batch in val_loader:
-                ids = batch['input_ids'].to(device)
-                mask = batch['attention_mask'].to(device)
                 labs = batch['severity_label'].to(device)
-                kg_a = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_a']], dim=0)
-                kg_b = torch.cat([kg_or_zero(n, kg_embeddings, device) for n in batch['drug_b']], dim=0)
-                lip_a = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_a']], dim=0)
-                lip_b = torch.cat([lip_by_name_or_zero(n, name_to_id, lipinski, device) for n in batch['drug_b']], dim=0)
-                out = model(input_ids=ids, attention_mask=mask, kg_embedding_a=kg_a, kg_embedding_b=kg_b, lipinski_feats_a=lip_a, lipinski_feats_b=lip_b)
+                out = forward_pair(model, batch, device, kg_embeddings, name_to_id, lipinski)
                 all_pred.extend(out['severity_logits'].argmax(-1).cpu().tolist())
                 all_true.extend(labs.cpu().tolist())
+                all_keys.extend(pair_key(a, b) for a, b in zip(batch['drug_a'], batch['drug_b']))
         print(f'\nEpoch {epoch + 1}/{num_epochs}  |  loss={avg_loss:.4f}')
-        macro_f1 = report_severity(all_true, all_pred)
+        print('Full validation split:')
+        full_f1 = report_severity(all_true, all_pred)
+        print('Pairs absent from training:')
+        macro_f1 = disjoint_f1(all_true, all_pred, all_keys, train_pairs, report_severity) if span_pooling else full_f1
         if macro_f1 > best_f1:
             best_f1 = macro_f1
             torch.save(model.state_dict(), save_path)
@@ -730,6 +809,10 @@ if __name__ == '__main__':
     parser.add_argument('--epochs2', type=int, default=10)
     parser.add_argument('--epochs3', type=int, default=10)
     parser.add_argument('--model', type=str, default='emilyalsentzer/Bio_ClinicalBERT')
+    parser.add_argument('--freeze-trunk', action='store_true', help='Stage 3 ablation: train only the severity head')
+    parser.add_argument('--init-ckpt', type=str, default='', help='Checkpoint to load before stage 3')
+    parser.add_argument('--save-name', type=str, default='', help='Stage 2 or Stage 3 output filename')
+    parser.add_argument('--span-pooling', action='store_true', help='Train and validate with span-mean pooling. Saves a new file and refuses the original checkpoint names.')
     args = parser.parse_args()
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_DIR = os.path.join(BASE_DIR, 'data')
@@ -741,8 +824,11 @@ if __name__ == '__main__':
     if args.stage in ('2', 'all'):
         if args.stage == '2' and (not os.path.exists(ckpt1)):
             raise SystemExit(f'Stage 2 requires Stage 1 checkpoint at: {ckpt1}\nRun: python -m app.models.trainer --stage 1')
-        train_stage2_interaction(DATA_DIR, OUTPUT_DIR, ckpt1, model_name=args.model, num_epochs=args.epochs2)
+        train_stage2_interaction(DATA_DIR, OUTPUT_DIR, ckpt1, model_name=args.model, num_epochs=args.epochs2, span_pooling=args.span_pooling, save_name=args.save_name if args.stage == '2' else '')
     if args.stage in ('3', 'all'):
-        if args.stage == '3' and (not os.path.exists(ckpt2)):
-            raise SystemExit(f'Stage 3 requires Stage 2 checkpoint at: {ckpt2}\nRun: python -m app.models.trainer --stage 2 (after stage 1), or --stage all')
-        train_stage3_severity(DATA_DIR, OUTPUT_DIR, ckpt2, model_name=args.model, num_epochs=args.epochs3)
+        stage3_init = args.init_ckpt or ckpt2
+        if args.freeze_trunk and not args.init_ckpt:
+            stage3_init = os.path.join(OUTPUT_DIR, 'stage2_interaction_best_baseline_04190.pt')
+        if args.stage == '3' and (not os.path.exists(stage3_init)):
+            raise SystemExit(f'Stage 3 requires a Stage 2 checkpoint at: {stage3_init}')
+        train_stage3_severity(DATA_DIR, OUTPUT_DIR, stage3_init, model_name=args.model, num_epochs=args.epochs3, freeze_trunk=args.freeze_trunk, save_name=args.save_name if args.stage == '3' else '', span_pooling=args.span_pooling)

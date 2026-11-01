@@ -1,0 +1,11 @@
+{
+  "device": "cpu",
+  "ddi_disjoint": 1687,
+  "severity_disjoint": 260,
+  "ddi_current": 0.2024,
+  "ddi_span": 0.5098,
+  "severity_current": 0.3285,
+  "severity_span": 0.4421,
+  "switch_interaction": true,
+  "switch_severity": true
+}

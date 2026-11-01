@@ -13,6 +13,7 @@ class LipinskiProcessor:
     # this function is used to set up initial values for this object
     def __init__(self):
         self.drug_id_to_features: Dict[str, np.ndarray] = {}
+        self.drug_id_to_raw: Dict[str, np.ndarray] = {}
         self._loaded = False
 
     # this function is used to handle load
@@ -22,6 +23,9 @@ class LipinskiProcessor:
         print(f'  Loaded {len(df)} compounds | columns: {list(df.columns)}')
         id_col = self._find_id_column(df)
         print(f'  ID column: {id_col}')
+        for _, row in df.iterrows():
+            drug_id = str(row[id_col])
+            self.drug_id_to_raw[drug_id] = np.array([float(row[f]) if f in df.columns else 0.0 for f in LIPINSKI_FEATURES], dtype=np.float32)
         means = {}
         stds = {}
         for col in CONTINUOUS_FEATURES:
@@ -54,6 +58,9 @@ class LipinskiProcessor:
     # this function is used to get features
     def get_features(self, drug_id: str) -> Optional[np.ndarray]:
         return self.drug_id_to_features.get(drug_id)
+
+    def get_raw_features(self, drug_id: str) -> Optional[np.ndarray]:
+        return self.drug_id_to_raw.get(drug_id)
 
     # this function is used to check whether drug available
     def is_drug_available(self, drug_id: str) -> bool:

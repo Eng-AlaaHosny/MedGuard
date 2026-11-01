@@ -1,0 +1,324 @@
+{
+  "device": "cpu",
+  "split": "sentence-level train_test_split test_size=0.15 random_state=42",
+  "pair_overlap_ddi": {
+    "val_pairs": 3315,
+    "val_pairs_also_in_train": 1628,
+    "fraction": 0.4911,
+    "note": "Split is by sentence (random_state=42, 15%). This counts normalized drug-pair overlap."
+  },
+  "pair_overlap_severity": {
+    "val_pairs": 336,
+    "val_pairs_also_in_train": 76,
+    "fraction": 0.2262,
+    "note": "Split is by sentence (random_state=42, 15%). This counts normalized drug-pair overlap."
+  },
+  "disk_mb": {
+    "stage2_interaction_best.pt": 422.7,
+    "stage2_interaction_best_baseline_04190.pt": 422.7,
+    "stage3_severity_best.pt": 422.7,
+    "api_both": 845.4
+  },
+  "checkpoint_note": "The API loads stage2_interaction_best.pt. That file was overwritten on 28 Apr 2026. stage2_interaction_best_baseline_04190.pt is the 24 Apr 2026 copy named for the report score 0.4190. stage3_severity_best.pt is still the 24 Apr 2026 file.",
+  "ner_stage3": {
+    "macro_f1_BI": 0.9716,
+    "tokens": 34707
+  },
+  "ram": {
+    "working_set_mb": 1388.4,
+    "peak_working_set_mb": 1647.2,
+    "note": "Separate process. Both API checkpoints loaded and one forward each. KG and Lipinski were not loaded. Peak includes the temporary public Bio_ClinicalBERT copy before each checkpoint replaces it."
+  },
+  "ddi_report04190_cls": {
+    "macro_f1": 0.419,
+    "per_class": {
+      "false": {
+        "f1": 0.8201,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.3868,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.4215,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.3416,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.125,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.419,
+      "ci95_low": 0.3816,
+      "ci95_high": 0.458,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 3315
+    },
+    "file": "stage2_interaction_best_baseline_04190.pt"
+  },
+  "ddi_stage2_cls": {
+    "macro_f1": 0.2442,
+    "per_class": {
+      "false": {
+        "f1": 0.167,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.2256,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.3207,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.2497,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.2581,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.2442,
+      "ci95_low": 0.2198,
+      "ci95_high": 0.2672,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 3315
+    },
+    "file": "stage2_interaction_best.pt"
+  },
+  "ddi_stage3trunk_cls": {
+    "macro_f1": 0.3677,
+    "per_class": {
+      "false": {
+        "f1": 0.6744,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.3333,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.4091,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.2399,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.1818,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.3677,
+      "ci95_low": 0.3332,
+      "ci95_high": 0.4049,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 3315
+    }
+  },
+  "ddi_stage2_span": {
+    "macro_f1": 0.1873,
+    "per_class": {
+      "false": {
+        "f1": 0.1578,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.1653,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.2987,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.3149,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.0,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.1873,
+      "ci95_low": 0.1728,
+      "ci95_high": 0.2008,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 3278,
+      "n": 3315
+    },
+    "file": "stage2_interaction_best.pt"
+  },
+  "ddi_report04190_span": {
+    "macro_f1": 0.2103,
+    "per_class": {
+      "false": {
+        "f1": 0.8966,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.0,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.0751,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.08,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.0,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.2103,
+      "ci95_low": 0.1962,
+      "ci95_high": 0.2249,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 3278,
+      "n": 3315
+    },
+    "file": "stage2_interaction_best_baseline_04190.pt"
+  },
+  "ddi_stage3trunk_span": {
+    "macro_f1": 0.2347,
+    "per_class": {
+      "false": {
+        "f1": 0.8905,
+        "support": 2706
+      },
+      "mechanism": {
+        "f1": 0.0105,
+        "support": 181
+      },
+      "effect": {
+        "f1": 0.122,
+        "support": 265
+      },
+      "advise": {
+        "f1": 0.1503,
+        "support": 135
+      },
+      "int": {
+        "f1": 0.0,
+        "support": 28
+      }
+    },
+    "bootstrap": {
+      "n": 3315,
+      "macro_f1": 0.2347,
+      "ci95_low": 0.216,
+      "ci95_high": 0.2536,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 3278,
+      "n": 3315
+    }
+  },
+  "severity_stage3_cls": {
+    "macro_f1": 0.3602,
+    "per_class": {
+      "safe": {
+        "f1": 0.5652,
+        "support": 168
+      },
+      "caution": {
+        "f1": 0.24,
+        "support": 12
+      },
+      "warning": {
+        "f1": 0.3246,
+        "support": 88
+      },
+      "danger": {
+        "f1": 0.3111,
+        "support": 68
+      }
+    },
+    "bootstrap": {
+      "n": 336,
+      "macro_f1": 0.3602,
+      "ci95_low": 0.2915,
+      "ci95_high": 0.4271,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 0,
+      "n": 336
+    },
+    "note": "Evaluated on the linked severity subset built the same way as training."
+  },
+  "severity_stage3_span": {
+    "macro_f1": 0.3173,
+    "per_class": {
+      "safe": {
+        "f1": 0.6925,
+        "support": 168
+      },
+      "caution": {
+        "f1": 0.0,
+        "support": 12
+      },
+      "warning": {
+        "f1": 0.3546,
+        "support": 88
+      },
+      "danger": {
+        "f1": 0.2222,
+        "support": 68
+      }
+    },
+    "bootstrap": {
+      "n": 336,
+      "macro_f1": 0.3173,
+      "ci95_low": 0.2714,
+      "ci95_high": 0.3577,
+      "note": "Bootstrap over this split predictions, not retraining seeds."
+    },
+    "coverage": {
+      "span_both_found": 331,
+      "n": 336
+    },
+    "note": "Evaluated on the linked severity subset built the same way as training."
+  },
+  "latency_dual_forward_span": {
+    "n": 30,
+    "seconds_total": 7.28,
+    "seconds_per_pair": 0.243,
+    "note": "Two full forwards (stage3 file + stage2 API file), span pooling, batch 1. CPU/GPU as device field."
+  }
+}

@@ -1,0 +1,20 @@
+# Recreated from the last working local venv (Python 3.11, CPU torch).
+torch==2.10.0
+transformers==5.3.0
+tokenizers==0.22.2
+huggingface_hub==1.7.1
+safetensors==0.7.0
+fastapi==0.135.1
+uvicorn==0.41.0
+pydantic==2.12.5
+python-dotenv==1.2.2
+numpy==1.26.4
+pandas==3.0.1
+networkx==3.6.1
+node2vec==0.5.0
+gensim==4.4.0
+scikit-learn==1.8.0
+scipy==1.17.1
+tqdm==4.67.3
+requests==2.32.5
+python-dateutil==2.9.0.post0

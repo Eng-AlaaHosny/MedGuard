@@ -204,10 +204,17 @@ def build_kg_context(drug_a: str, drug_b: str, graph: Optional[DrugKnowledgeGrap
     return result
 DDI_TYPE_DESCRIPTIONS = {'false': 'No known pharmacological interaction between these drugs.', 'mechanism': 'Pharmacokinetic interaction: one drug alters the absorption, distribution, metabolism, or excretion of the other.', 'effect': 'Pharmacodynamic interaction: combined use alters the therapeutic or adverse effects of one or both drugs.', 'advise': 'Clinical guidance exists for this combination; consult prescribing information.', 'int': 'An interaction is reported; mechanism or clinical significance is unspecified.'}
 SEVERITY_GUIDANCE = {'safe': "No high-risk signal was detected for this pair. Continue routine monitoring and follow your clinician's advice.", 'caution': 'Use caution with this pair. Discuss with a clinician or pharmacist, especially if symptoms change.', 'warning': 'This pair may carry clinically meaningful risk. Contact your clinician/pharmacist before continuing or adding doses.', 'danger': 'This pair may be high risk. Seek urgent clinician/pharmacist guidance before use, and get immediate help for severe symptoms.'}
+SEVERITY_RANK = {'safe': 0, 'caution': 1, 'warning': 2, 'danger': 3}
 
 # this function is used to build interaction reason
 def build_interaction_reason(interaction_type: str, kg_context: Dict, drug_a: str, drug_b: str, severity_label: str) -> str:
     pair = f'{drug_a} and {drug_b}'
+    known = (kg_context or {}).get('known_interaction') if isinstance(kg_context, dict) else None
+    if known and known.get('description'):
+        reason = f'{pair}: {str(known.get("description")).strip()}'
+        if interaction_type == 'false':
+            reason += ' DrugBank records this interaction. The interaction classifier did not assign a subtype.'
+        return reason
     base = DDI_TYPE_DESCRIPTIONS.get(interaction_type, 'Interaction detected.')
     reason = f'{pair}: {base}'
     if interaction_type == 'false' and severity_label in {'caution', 'warning', 'danger'}:
@@ -218,9 +225,6 @@ def build_interaction_reason(interaction_type: str, kg_context: Dict, drug_a: st
 def extract_pair_evidence(kg_context: Dict, severity_label: str) -> tuple[str, str]:
     known = (kg_context or {}).get('known_interaction') if isinstance(kg_context, dict) else None
     if known and known.get('description'):
-        sev = known.get('severity')
-        if severity_label == 'safe' and isinstance(sev, int) and (sev >= 1):
-            return ('', 'none')
         return (str(known.get('description')).strip(), 'kg_context')
     return ('', 'none')
 
@@ -232,8 +236,9 @@ def build_lipinski_context(drug_a: str, drug_b: str, lip: Optional[LipinskiProce
     for drug_name in [drug_a, drug_b]:
         drug_id = resolve_drug_id(drug_name, graph)
         if drug_id and lip.is_drug_available(drug_id):
-            feats = lip.get_features(drug_id)
-            result[drug_name] = {'drugbank_id': drug_id, 'molecular_weight': float(feats[0]), 'n_hba': float(feats[1]), 'n_hbd': float(feats[2]), 'logp': float(feats[3]), 'ro5_fulfilled': bool(feats[4] > 0.5), 'available': True}
+            raw = lip.get_raw_features(drug_id)
+            feats = raw if raw is not None else lip.get_features(drug_id)
+            result[drug_name] = {'drugbank_id': drug_id, 'molecular_weight': round(float(feats[0]), 1), 'n_hba': int(round(float(feats[1]))), 'n_hbd': int(round(float(feats[2]))), 'logp': round(float(feats[3]), 2), 'ro5_fulfilled': bool(feats[4] > 0.5), 'available': True, 'values': 'raw'}
         else:
             result[drug_name] = {'available': False, 'status': 'Data Unavailable — drug not in Lipinski dataset'}
     return result
@@ -263,7 +268,10 @@ def run_pair_inference(drug_a: str, drug_b: str, inference_text: Optional[str]=N
     modality_coverage = {drug_a: {'kg_embedding': kg_emb_a is not None, 'lipinski_features': lip_feats_a is not None, 'token_span_found': spans_a is not None}, drug_b: {'kg_embedding': kg_emb_b is not None, 'lipinski_features': lip_feats_b is not None, 'token_span_found': spans_b is not None}}
     with torch.no_grad():
         outputs = m(input_ids=input_ids, attention_mask=attention_mask, drug_a_spans=spans_a, drug_b_spans=spans_b, kg_embedding_a=kg_emb_a, kg_embedding_b=kg_emb_b, lipinski_feats_a=lip_feats_a, lipinski_feats_b=lip_feats_b)
-        interaction_outputs = (im or m)(input_ids=input_ids, attention_mask=attention_mask, drug_a_spans=spans_a, drug_b_spans=spans_b, kg_embedding_a=kg_emb_a, kg_embedding_b=kg_emb_b, lipinski_feats_a=lip_feats_a, lipinski_feats_b=lip_feats_b)
+        if im is None or im is m:
+            interaction_outputs = outputs
+        else:
+            interaction_outputs = im(input_ids=input_ids, attention_mask=attention_mask, drug_a_spans=spans_a, drug_b_spans=spans_b, kg_embedding_a=kg_emb_a, kg_embedding_b=kg_emb_b, lipinski_feats_a=lip_feats_a, lipinski_feats_b=lip_feats_b)
     interaction_probs = torch.softmax(interaction_outputs['interaction_logits'], dim=-1).squeeze(0)
     interaction_idx = int(interaction_probs.argmax().item())
     interaction_type = DDI_LABELS.get(interaction_idx, 'false')
@@ -279,7 +287,13 @@ def run_pair_inference(drug_a: str, drug_b: str, inference_text: Optional[str]=N
     lipinski_context = build_lipinski_context(drug_a, drug_b, lip, graph)
     interaction_reason = build_interaction_reason(interaction_type, kg_context, drug_a, drug_b, severity_label)
     evidence_text, evidence_source = extract_pair_evidence(kg_context, severity_label)
-    plain_guidance = SEVERITY_GUIDANCE.get(severity_label, 'Discuss this combination with a clinician/pharmacist before use.')
+    guide_label = severity_label
+    known = (kg_context or {}).get('known_interaction') if isinstance(kg_context, dict) else None
+    if known:
+        kg_label = known.get('severity_label') or 'safe'
+        if SEVERITY_RANK.get(kg_label, 0) > SEVERITY_RANK.get(severity_label, 0):
+            guide_label = kg_label
+    plain_guidance = SEVERITY_GUIDANCE.get(guide_label, 'Discuss this combination with a clinician/pharmacist before use.')
     return DDIResponse(inference_text=infer_txt, detected_entities=entities, interaction_type=interaction_type, interaction_type_idx=interaction_idx, interaction_source=interaction_source, severity_label=severity_label, severity_level=severity_idx, severity_color=severity_color, severity_source=severity_source, interaction_reason=interaction_reason, evidence_text=evidence_text, evidence_source=evidence_source, plain_guidance=plain_guidance, kg_context=kg_context, lipinski_context=lipinski_context, confidence=confidence, modality_coverage=modality_coverage)
 
 @router.post('/analyze', response_model=DDIResponse)

@@ -71,6 +71,8 @@ All metrics are **macro-F1** on a **15% validation split** (single training run;
 
 **Stage 3 labelling:** **795 / 3,411** sentence pairs (23.31%) received a resolved DDInter severity label; **539** mentions were skipped as drug-class phrases (`class_routing`). The low severity F1 is primarily a **data-linking constraint**, not a modelling failure in isolation.
 
+**Danger recall** on that same severity validation set (68 danger pairs): **0.41** with the training pooling (CLS). The API’s span-mean pooling drops it to **0.16**.
+
 **Checkpoints** (not in git): [Google Drive folder](https://drive.google.com/drive/folders/1qBovw44ooOrlT1yP_onUIVjUtQX2CEAq?usp=sharing) — see [CHECKPOINTS.md](CHECKPOINTS.md).
 
 ---
@@ -78,19 +80,20 @@ All metrics are **macro-F1** on a **15% validation split** (single training run;
 ## Architecture
 
 ```text
-OFFLINE                          ONLINE
-───────                          ──────
-DDI Corpus ──► preprocessor.py
-DrugBank XML ─► drugbank_processor.py ──► drugbank.db
-              ─► kg_builder_full.py ──► knowledge_graph.pkl
-DDInter CSVs ─► ddinter_vocabulary.py
-Lipinski CSV ─► (shipped in repo)
-              ─► trainer.py ──► stage{1,2,3}_*.pt
-                                        │
-                                        ▼
-                              main.py (FastAPI)
-                              ├── POST /api/analyze  ◄── demo.html
-                              └── POST /api/assistant/chat (optional)
+1. OFFLINE — staged sequential multi-task fine-tuning
+   Stage 1  NER head
+   Stage 2  interaction head + pair trunk
+   Stage 3  severity head (trunk was trained again in the submitted run)
+   KG and Lipinski are built here and joined at inference. They are not a second encoder.
+
+2. ONLINE — the demo loads two full-precision checkpoints
+   stage3_severity_best.pt       NER + severity
+   stage2_interaction_best.pt    interaction type
+   text + KG embedding + Lipinski vector, span-mean pooling
+   demo.html  →  POST /api/analyze
+
+3. OPTIONAL
+   POST /api/assistant/chat   (only if ANTHROPIC_API_KEY is set)
 ```
 
 | Component | Details |
@@ -98,7 +101,8 @@ Lipinski CSV ─► (shipped in repo)
 | **Encoder** | [`emilyalsentzer/Bio_ClinicalBERT`](https://huggingface.co/emilyalsentzer/Bio_ClinicalBERT) (768-d hidden) |
 | **KG** | NetworkX graph from DrugBank interactions; node2vec 128-d (`KG_DIM`) |
 | **Max tokens** | 128 (`MAX_LENGTH`) |
-| **Runtime checkpoints** | `stage3_severity_best.pt` (NER + severity); `stage2_interaction_best.pt` (interaction head) |
+| **Runtime checkpoints** | `stage3_severity_best.pt` (NER + severity) and `stage2_interaction_best.pt` (interaction). The frozen-trunk file is an experiment and is not what the demo loads. |
+| **Not loaded at runtime** | `stage3_severity_frozen_trunk.pt` and its INT8 copy. Those are experiment files. The original stage files are not overwritten. |
 
 
 ---
@@ -375,7 +379,7 @@ MedGuard/
 
 - **DDInter coverage (~23%)** — only 795 / 3,411 pairs carry severity labels; constrains Stage 3 F1.
 - **Drug-class mentions** — 539 `class_routing` exclusions; no class→ingredient expansion yet.
-- **Train/inference span mismatch** — CLS pooling in Stages 2–3 vs span pooling at inference.
+- **Train/inference span mismatch** — CLS pooling in Stages 2–3 vs span pooling at inference. On the report interaction file this changes macro-F1 from 0.4190 to 0.2103.
 - **Sentence-level validation split** — may be optimistic; pair- or document-level split would be stricter.
 - **No probability calibration** — confidences are raw softmax, not ECE-corrected.
 - **No automated test suite** — pytest / CI not included.

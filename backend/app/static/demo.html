@@ -865,6 +865,12 @@ const DDI_LABELS = {
   int:       'Interaction (generic)',
 };
 
+function severityGap(sevConf) {
+  const vals = Object.values(sevConf || {}).map(Number).filter(Number.isFinite).sort((a, b) => b - a);
+  if (vals.length < 2) return 1;
+  return vals[0] - vals[1];
+}
+
 function getDisplayInteractionLabel(interactionType, severityLabel) {
   if (interactionType === 'false' && severityLabel && severityLabel !== 'safe') {
     return 'Potential interaction (model uncertainty)';
@@ -875,7 +881,9 @@ function getDisplayInteractionLabel(interactionType, severityLabel) {
 function showResults(data, drugs) {
   const el = document.getElementById('results');
   const sev = data.severity_label || 'safe';
+  const sevNice = SEVERITY_LABELS_NICE[sev] || sev;
   const intType = getDisplayInteractionLabel(data.interaction_type, sev);
+  const uncertain = severityGap(data.confidence?.severity) < 0.03;
 
   const detected = data.detected_entities.filter(e => e.label === 'B-DRUG');
   const detectedHtml = detected.length
@@ -923,8 +931,8 @@ function showResults(data, drugs) {
     return `
       <div style="margin-bottom:.5rem">
         <div class="kv-row"><span class="kv-key" style="font-weight:600;color:var(--blue-700)">${name}</span><span class="kv-val" style="font-size:.75rem;color:var(--gray-400)">Ro5: ${info.ro5_fulfilled?'✓':'✗'}</span></div>
-        <div class="kv-row"><span class="kv-key">MW</span><span class="kv-val">${info.molecular_weight} g/mol</span></div>
-        <div class="kv-row"><span class="kv-key">logP</span><span class="kv-val">${info.logp}</span></div>
+        <div class="kv-row"><span class="kv-key">MW</span><span class="kv-val">${Number(info.molecular_weight).toFixed(1)} g/mol</span></div>
+        <div class="kv-row"><span class="kv-key">logP</span><span class="kv-val">${Number(info.logp).toFixed(2)}</span></div>
         <div class="kv-row"><span class="kv-key">H-bond acceptors</span><span class="kv-val">${info.n_hba}</span></div>
         <div class="kv-row"><span class="kv-key">H-bond donors</span><span class="kv-val">${info.n_hbd}</span></div>
       </div>`;
@@ -935,7 +943,8 @@ function showResults(data, drugs) {
     <div class="severity-banner ${sev}">
       <div class="sev-icon">${SEV_ICONS[sev] || '💊'}</div>
       <div>
-        <div class="sev-label" style="text-transform:capitalize">${sev} — ${intType}</div>
+        <div class="sev-label">${sevNice} — ${intType}</div>
+        ${uncertain ? `<div class="sev-sub">Uncertain: the top two severity classes are within 3 points. The label above is still ${sevNice}.</div>` : ''}
         <div class="sev-sub">Severity level ${data.severity_level}/3 · Interaction type: <strong>${data.interaction_type}</strong> · Interaction source: <strong>${data.interaction_source === "drugbank_kg" ? "🗄️ DrugBank KG" : "🤖 Trained Model"}</strong> · Severity source: <strong>${data.severity_source === "drugbank_kg" ? "🗄️ DrugBank KG" : "🤖 Trained Model"}</strong></div>
       </div>
     </div>
@@ -990,7 +999,7 @@ function showResults(data, drugs) {
         <h3>Severity Head Output</h3>
         <div class="kv-row">
           <span class="kv-key">Model prediction</span>
-          <span class="kv-val" style="text-transform:capitalize;color:var(--blue-700)">${data.severity_label}</span>
+          <span class="kv-val" style="color:var(--blue-700)">${sevNice}${uncertain ? ' (uncertain)' : ''}</span>
         </div>
         <div class="kv-row">
           <span class="kv-key">Source</span>
